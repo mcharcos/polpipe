@@ -1,0 +1,196 @@
+#!/usr/bin/env bash
+
+while getopts l: option
+do
+  case "${option}"
+  in
+    l) shellopt=$OPTARG;;
+  esac
+done
+shift $(( OPTIND-1 ))
+
+
+checkcodepath(){
+  # Set the source directory
+  dirsrc=$(cd "${destination}/src" && pwd)
+  echo "Checking source path..."
+  if [ ! -d $dirwork ]; then
+    echo "Directory does not exist: $dirsrc"
+    echo "Aborting installation"
+    exit 1
+  fi
+  
+  # Set the binary directory
+  dirbin=$(cd "${destination}/bin" && pwd)
+  echo "Checking binary path..."
+  if [ ! -d $dirbin ]; then
+    echo "Directory does not exist: $dirbin"
+    echo "Aborting installation"
+    exit 1
+  fi
+  
+  # Set the library directory
+  dirlib=$(cd "${destination}/lib" && pwd)
+  echo "Checking library path..."
+  if [ ! -d $dirlib ]; then
+    echo "Directory does not exist: $dirlib"
+    echo "Aborting installation"
+    exit 1
+  fi
+  
+  # Set the miscellaneous directory
+  dirmisc=$(cd "${destination}/misc" && pwd)
+  echo "Checking miscellaneous path..."
+  if [ ! -d $dirmisc ]; then
+    echo "Directory does not exist: $dirmisc"
+    echo "Aborting installation"
+    exit 1
+  fi
+  
+  # Set the resource directory
+  dirdata=$(cd "${destination}/data" && pwd)
+  echo "Checking resource path..."
+  if [ ! -d $dirdata ]; then
+    echo "Directory does not exist: $dirdata"
+    echo "Aborting installation"
+    exit 1
+  fi
+  
+  # Verify that the mlofidlpath routine exists
+  if [ ! -f $dirbin/mlofidlpath ]; then
+    echo "mlofidlpath does not exist under $dirbin"
+    echo "Aborting installation"
+    exit 1
+  fi
+}
+
+# Verify inputs
+if [ "$#" -lt 1 ]; then 
+  echo "Usage in DPS:  install_pipecal [-l shell] source coyotepath astropath otheridllibraries"
+  exit 1
+fi
+
+# Set the destination directory where the package lives
+destination=$(cd "$1" && pwd)
+echo "Checking installation path..."
+if [ ! -d $destination ]; then
+  echo "Directory does not exist: $destination"
+  echo "Aborting installation"
+  exit 1
+fi
+checkcodepath
+echo ""
+
+# Now we check the rest of the idl paths
+shift 1
+idllist=$@
+
+echo "Checking idl library paths..."
+for idldir in $idllist
+do
+  # Set the idl directory where the package lives
+  echo "Checking idl path $idldir..."
+  if [ ! -d $idldir ]; then
+    echo "Directory does not exist: $idldir"
+    echo "Aborting installation"
+    exit 1
+  fi
+  
+  isother=1
+  # Checking if the current library is astro library
+  if [ "$(basename idldir)" == "astron" ]; then
+    echo "Adding astro library: ${idldir}"
+    if [ ! -z "$astropath" ]; then warning=$(echo -e "$warning \n WARN: More than one astron path was input"); fi
+    astropath="$astropath+$idldir:"
+    isother=0
+  fi
+  if [ -d ${idldir}/astron ]; then
+    echo "Adding astro library: ${idldir}/astron"
+    if [ ! -z "$astropath" ]; then warning=$(echo -e "$warning \n WARN: More than one astron path was input"); fi
+    astropath="$astropath+$(cd "${idldir}/astron" && pwd):"
+    isother=0
+  fi
+  
+  # Checking if the current library is coyote library
+  if [ "$(basename idldir)" == "coyote" ]; then
+    echo "Adding coyote library: ${idldir}"
+    if [ ! -z "$coyotepath" ]; then warning=$(echo -e "$warning \n WARN: More than one coyote path was input"); fi
+    coyotepath="$coyotepath+$idldir:"
+    isother=0
+  fi
+  if [ -d ${idldir}/coyote ]; then
+    if [ ! -z "$coyotepath" ]; then warning=$(echo -e "$warning \n WARN: More than one coyote path was input"); fi
+    echo "Adding coyote library: ${idldir}/coyote"
+    coyotepath="$coyotepath+$(cd "${idldir}/coyote" && pwd):"
+    isother=0
+  fi
+  
+  if [ $isother -eq 1 ]; then
+    echo "Adding additional library: $idldir"
+    otherpath="$otherpath+$idldir:"
+  fi
+done
+
+# Set the astro library directory
+echo "Checking astro library path..."
+if [ -z $astropath ]; then
+  echo "Astro library directory was not input"
+  echo "A directory to astron or containing astron should be input"
+  echo "Aborting installation"
+  exit 1
+fi
+curidldir="$astropath"
+
+# Set the coyote library directory
+echo "Checking coyote library path..."
+if [ -z $coyotepath ]; then
+  echo "Coyote library directory was not input"
+  echo "A directory to coyote or containing coyote should be input"
+  echo "Aborting installation"
+  exit 1
+fi
+curidldir="$curidldir$coyotepath"
+
+# Check if additional libraries were input
+if [ ! -z $otherpath ]; then
+  echo "Additional libraries were not input"
+  curidldir="$otherpath$curidldir"
+fi
+
+# Update mlofidlpath routine under bin
+# At this stage we know that the routine exist because we previously called checkcodepath
+echo "Setting ROOT DIRECTORY: $destination"
+perl -pi -e "s|.*rootdir\s*=.*|rootdir='$destination'|i" $dirbin/mlofidlpath
+
+echo "Setting IDL DIRECTORY: $idldir"
+perl -pi -e "s|.*idldir\s*=.*|idldir='$curidldir'|i" $dirbin/mlofidlpath
+
+# Now change the script type if in dps
+# Default script type is ksh
+# Script type in dcs is dcsksh
+if [ ! -z "$shellopt" ]; then
+  echo "Updating scripts to DPS environment: ksh ==>> dcsksh"
+  list=$(ls ${destination}/bin)
+  echo $list
+  for i in $list
+  do
+    if [ -f "${destination}/bin/$i" ]; then
+      echo "Change shell type for $i to dcsksh"
+      perl -pi -e "s|.*#!/usr/bin/env .*|#!/usr/bin/env $shellopt|i" ${destination}/bin/$i
+    fi
+  done
+else
+  echo "Default shell is ksh"
+  list=$(ls ${destination}/bin)
+  echo $list
+  for i in $list
+  do
+    if [ -f "${destination}/bin/$i" ]; then
+      echo "Change shell type for $i to ksh"
+      perl -pi -e "s|.*#!/usr/bin/env .*|#!/usr/bin/env ksh|i" ${destination}/bin/$i
+    fi
+  done
+fi
+
+echo "INSTALLATION SUCCEDED"
+exit 0

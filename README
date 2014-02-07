@@ -1,0 +1,217 @@
+MLOF Pipeline User Manual
+
+This document describes the use of the MLOF pipeline which reduces polarimetric data. It specified the different components of the gui and the steps
+to take in order to produce the reduced data. It also describes some simple analysis tools of the package that may be used to verify the final and
+intermediate products.
+
+=======================
+0- General Descriptions
+=======================
+
+0.1 - Requirements of format of data file names
+
+No special characters should be used in the file names.
+
+ - Objects: filename = [ObjName]_[filter]_[HWP position]_[index].fit
+    + ObjName must not contain underscores. The code handles the case with one underscore but underscores others than the one specified here should be avoided.
+    + filter = [U,B,V,R,I]
+    + HWP position: Position of the HWP as follow:
+        > HWP angle = 0 degrees     => HWP position = 01
+        > HWP angle = 22.5 degrees  => HWP position = 02
+        > HWP angle = 45 degrees    => HWP position = 03
+        > HWP angle = 67.5 degrees  => HWP position = 04
+        > HWP angle = 90 degrees    => HWP position = 05
+        > HWP angle = 112.5 degrees => HWP position = 06
+        > HWP angle = 135 degrees   => HWP position = 07
+        > HWP angle = 157.5 degrees => HWP position = 08
+    + index: any number or letters that the user would like to set to identify the files with same filter and hwp position. The only requirement
+             is that it does not contain underscores.
+ - Flats: No file name requirements
+ - Darks: No file name requirements
+
+0.2 - Header keyword requirements
+
+The code does not require any specific keyword to run. The routine hdpopulate will fill the keywords according to the filenames and the user choices for flats
+and darks (see section 1.1.3).
+
+0.3 - Library requirements
+
+It requires the astro and coyote libraries to be installed. It also requires atv to be functional and running. Set the IDL_PATH accordingly to point to these libraries.
+
+0.4 - Directory structure
+
+The code will create a directory called 'reduce' under the data directory where all the products will be saved. Outputs are as follow
+
+ - RUNBADPIX: There is one file per input data file. The name is filename--runbadpix.fits
+ - RUNDARK: There is one file per input data file. The name is filename--rundark.fits
+ - RUNFLATFIELD: There is one file per input data file. The name is filename--runflatfield.fits
+ - RUNCOADD: There is one file per input data group. Each group contains files with same filter and hwp (filename1, filename2,...).
+             These files are combined into a single output named as filename1--runcoadd.fits
+ - RUNPHOTOMETRY: There is one file per input data group. Each group contains files with same filter and hwp (filename1, filename2,...). The input is one single file
+                  produced by runcoadd. The output file is filename1--runphotometry.fits. The output file contains the information in the fits headers of the
+                  star position, star photometry and sky photometry. In addition, a text file containing this information as well as the information of the fwhm
+                  is saved with the file name filename1--runphotometry.info
+ - RUNPOLARIMETRY: There is one single file per data with the same filter. For a set of hwp outputs from runphtometry (filename1--runphotometry.fits,...) it will group
+                   them and create an output fits file filename1--runpolarimetry.fits which include the information of the polarimetry considering all the hwp
+                   positions of the input data. The information is saved in the fits headers. In the visualization table each of the rows corresponding to a group
+                   with the same hwp will have the same results. See section 2.2.1 for help about how to visualize that information.
+ - RUNSERKOWSKI: There is one single file per data of the same object. For a set of filters outputs from runpolarimetry (filename1--runpolarimetry.fits,...) it will group
+                   them and create an output fits file filename1--runserkowski.fits which include the information of the serkowski parameters considering all the filter
+                   polarizations of the same object data. The information is saved in the fits headers. In the visualization table each of the rows corresponding to a group
+                   of the same object will have the same results. See section 2.2.1 for help about how to visualize that information.
+
+===============
+1- Quick Start
+===============
+
+1.1 Starting the code
+
+  1.1.1 Starting the code
+        -----------------
+The file containing the code is mlofsrc.sav. This file contains all the routines that need to be run for processing. First, start idl. 
+Then load the routines to memory and start the gui as follow:
+
+    IDL> restore,'mlofsrc.sav'
+    IDL> mlof_gui
+
+  1.1.2 Selecting the Data Path
+        -----------------------
+A window will pop-up asking if the specified directory contains the data. Usually, that directory is the latest you used which is stored automatically
+to the DefaultConf.sav file. If it is the first time you run the software in your computer this file won't exist and it will take the home directory as default.
+Next time, if you quit the code propertly, it will record the latest path you used. If you don't want to change the path just click 'No'. If this is not the
+path of the folder containing the data, press 'Yes' and a browser will pop up to allow the selection of the new folder. Note that this only shows the directories
+since you are selecting a path.
+
+  1.1.3 Updating the Data Headers
+        -------------------------
+After you are done selecting the path of the data, another dialog message will ask if you want to populate the keywords of the
+headers. Typically, if you did not do it before, you will have to do it if you want the code to run correctly. If you already went through this process,
+you can skip it by pressing 'No'. If you selected 'Yes' another dialog will ask if you want to also update the headers of the flats and darks. This
+will require selecting them using a browser that will pop-up if you select 'Yes'. First, select all the files in the directory that are flats and press Ok. If there
+are not flat fields you can press Cancel to skip the flats. Then, a pop up browser will allow you to select the darks. Select them and press Ok or press Cancel if
+the folder does not contain darks.
+
+When you are finish interacting, the software will read all the files in the directory and update the headers according to the name convention explained in section 0.1
+
+  1.1.4 Start Processing
+        ----------------
+
+Briefly, start processing will only require to press all the buttons on the left-top side of the screen from top to bottom, that is starting on 'RUNBADPIX' to 'RUNSERKOWSKI'
+You cannot skip steps since the inputs of each step are the ouputs of the previous ones. Future implementations will allow this possibility.
+Some of the steps can be configured. See the detailed descriptions of the steps for more details about how to configure them.
+
+At each time, a step whose previous step has been done can be processed. It may happen that the outputs are different if the configuration changed or if it required
+user interaction. Therefore, following steps must be run again to be consistent with the processing. 
+
+
+2.2 GUI Description
+
+  2.2.1 Bar Panel
+        ---------
+
+ - Files:
+    + Quit: Quit the GUI. A dialog message will ask to comfirm the selection
+ - Help:
+    + About: Pops up a dialog window with the information of the software. It requires the 'About.txt' file in the same directory as mlofsrc.sav.
+ 
+  2.2.2 Processing Panel
+        ----------------
+ 
+ This panel typically includes buttons with the name of the processing and a button with the '=>' symbol when the processing step can be configure. When the
+ configuration button is pressed, a pop up window shows to allow changing parameters as described below. 
+ 
+ - RUNBADPIX: Remove bad pixels from the image.
+    => Configuration:
+        + Nsigma: Threshold of the bad pixel detection.
+ - RUNDARK: Remove the dark current using a master dark file made from the combination of all input darks
+ - RUNFLATFIELD: Correct flat field effects using a master flat file made from the combination of all input flats
+ - RUNCOADD: Coadd all images of the group. Data in each group should be from the same object, have the same filter and hwp position
+ - RUNPHOTOMETRY: Calculate the position of the stars and measure the photometry. The automatic detection of the peaks is not very efficient
+                  but the routine allows user interaction to allow showing where the peaks are situated in the image. You can set this option in the
+                  configuration. To select stars interactively, an atv window will pop up with the detected positions of the stars. A dialog message will
+                  ask if these are the correct positions. If you think the calculated positions match the real positions in the image press 'Yes'.
+                  If not, you can press 'No', select the atv window, press 'p' over the first star and then press 'q'. Then, press 'p' over the next star followed by 'q'.
+                  Repeat the operation for as many stars per image that you have. For each image, repeat the same process until all images are done.
+                  It is mandatory that you always select the same position for each star and extraordinary or ordinary positions. You can also use the potential
+                  analysis tools of atv before pressing 'q' for each star. Just be sure that the last time you pressed 'p' was over the start that you are
+                  trying to select.
+    => Configuration:
+        + dofwhm (1 or 0): Defines if the fwhm is used to detect stars. By default is 0 but setting it to 1 may improve the peak detection algorithm but increase the
+                           calculation time.
+        + fwhm: Size in pixels of the fwhm used to detect peaks.
+        + aperts: Array containing a set of apertures for which the photometry will be calculated. Although you can change the values of the array you must keep the sice of the
+                  array and the order from low to high.
+        + apertidx: The index of the aperture that you are going to use in the 'aperts' array. The index starts with 0. The default value is 12, which corresponds to
+                    an aperture of 25 pixels radius. You can change that value but double check that is positive and lower than the maximum size of the 'aperts' array.
+                    These two latest configuration attributes are likely to change in the future.
+        + back: Inner and outer radii (in pixels) of the area used to calculate the background. For coherence, they should be larger than the aperture size.
+        + npeaks: Number of peaks to be detected. Since we are calculating polarization, it should be a even number. For each star, there are two peaks to be detected in the
+                  image. Although the user can select to have more stars the polarimetry is going to be calculated only with the first two peaks. Further updates
+                  of the software will allow to calculate polarizations for more than one star in the detector. In automatic mode, you may still want to detect 4 peaks
+                  if there are four stars so the algorithm does not get confuse.
+        + readoutf (1 or 0): After calculating the peaks and the photometry, the code writes a file with the results that can be used to skip the calculations next time the
+                    algorithm is run on the same data. This is specially useful for interactive mode when new data is included in the same directory. Data that has been
+                    previously processed will automatically get the right positions from the previous calculations. If you think that you did a mistake in a previous image,
+                    you can remove the corresponding file under the 'reduce' directory. Set readoutf to 1 if you want to consider the results read from previous processing.
+        + interactive (1 or 0): Set to 1 if you want to interact with the display and manually select the stars as decribed above.
+ - RUNPOLARIMETRY: Calculates the polarimetry from the photometry resulting from RUNPHOTOMETRY. It only uses the first star from the photometry step. However, the
+                   routine may produce two stars if it finds star positions in two images that are greater than deltapos. In that case, you want to verify if you
+                   the star positions are correct or if you need to increase the deltapos size. 
+    => Configuration:
+        + deltapos: Allowed distance to match stars in two separate files. This is not really useful yet because we are only considering the first star of the list from
+                    the photometry. Thus, you can set a big number if you find more than one star in the outputs.
+ - RUNSERKOWSKI: Calculates the Serkowski parameters for polarization from different filters. 
+    => Configuration:
+        + deltapos: Allowed distance to match stars in two separate files. This is not really useful yet because we are only considering the first star of the list from
+                    the polarimetry. Thus, you can set a big number if you find more than one star in the outputs.
+ 
+
+  2.2.3 Plotting Panel
+        --------------
+Not available yet. Typically, plot and atv windows will pop up if visualization and/or interaction are required. These will be incorporated in the plot
+visualization panel in later versions.
+
+  2.2.1 Browser Panel
+        -------------
+
+A Panel under the Plotting panel includes a button labeled as 'Browse' as well as a text widget showing the current path of the data. By pressing 'Browse'
+a browser window pops up allowing the user to select a new file. The user will have to go through the same steps defined ins 1.1.3. The text field will be
+updated with the new directory name when all the data is read from the new directory.
+
+  2.2.1 Table Panel
+        -----------
+
+The lower panel shows a table with the information of the data that is being process and the status of the process. Each row corresponds to a group of data
+that have the same filter, object and hwp. Each column corresponds to a processing step and they are filled with 'done' when the step is run and finished.
+The panel also include buttons on the side that allow to configure the rows that are going to be displayed on the table and save the table that is currently
+visualized to a text file. There are also keys and mouse options that allow the user to interact with the table in order to obtain information or visualize
+data for a specific group and step.
+
+ - 'Save' button: Pops up a browser window allowing the user to select a folder and a file name to which the table is saved. The information is saved
+                  in a Tab-separated format
+ - 'Configure' button: Pops up a window with the list of the columns and checkboxes that allow the user to select or de-select the columns to be visualized in
+                       the table.
+                       
+These buttons are here because the table panel are used for other purposes in which the outputs are more complicated and difficult to visualize. They are not
+very interesting in this context.
+
+ - Table interaction:
+    + Press a cell under the following columns:
+        * Name, RUNBADPIX, RUNDARK, RUNDFLATFIELD, RUNCOADD: Displays in an atv window the first image of the inputs of the selected step and group
+        * RUNPHOTOMETRY: Displays in an atv window the first image of the inputs of the selected step and group. In addition, the aperture and background
+                         regions are overlayed
+        * RUNPLOARIMETRY: Plot the fo-fe/fo+fe for each of the hwp with their errors and overplot the fitting cos function P*cos(4xtheta-2xXi)
+        * RUNSERKOWSKI: Plot the polarimetry for each of the input filters and the fitting Serkowski law.
+    + After a cell is selected, you can have additional information of that step and group by pressing the following keys:
+        * 'i': Pops up a window with the information of the step and group.
+            + For Runbadpix, Rundark, Runflatfield, and Runcoadd the information is just about
+               the status of the processing.
+            + For Runphotometry the information includes the photometry of the stars
+            + For Runpolarimetry the information includes the polarimetry of the stars
+            + For Runserkowski the information includes the Serkowski law from the stars
+        * 'k': Shows in the shell the information of the constraints used for the inputs of the groups. Ignore this if you are not debugging
+        * 'd': Shows in the shell the complete list of data in this group and step. This includes the input data, the output data and the ancillary files
+              used at that step for the requested group. This is useful to verify that the code is behaving the way we expected and we are not
+              including data that does not match the group.
+
+    

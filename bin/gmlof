@@ -1,0 +1,190 @@
+#!/usr/bin/env ksh
+
+usage=$'[-1?1s1]
+[+NAME?gmlof - Stage MLOF data for processing.]
+[+DESCRIPTION?\bgmlof is used to group MLOF data according to their filters, object and hwp.\b Data is organized in the destination directory
+  depending on the input parameters. If specified, the ordinary and extraordinary fields are extracted from the image and written to
+  separate trees. For more information about the tree herarchie see the different options.]
+[+?\bgmlof\b Will read all the fits files in the input directories, and organize it according to their file names or header keywords. If file names
+  are used, the header keywords are populated accordingly. The keywords used are \bFILTER\b, \bOBJECT\b, \bHWP\b and \bRAY\b for the filter, the object
+  name, the half waveplate position and the type of field (ordinary, extraordinary or all). The format of the file names are specified below in this
+  manual. There are different formats depending on the number of \b_\b symbols that are used on the name.
+  All the fits data (recursively or not depending on the use of the \b-r\b option) will be staged in the same destination directory.]
+[+?\bgmlof\b is a shell wrapper of the idl routine \bgmlof.pro\b. gmlof.pro uses the idl routine \bfmlof.pro\b to identify the propeties of the
+  file from its name. The file name formats are as follow:]
+[+FILENAME FORMAT]{
+[+? HWP values are 0, 225, 45, 675, 90, 1125, 135 or 1575 for the different rotation angles of the half waveplate.]
+[+OBJECT-FILTER_HWP.fit? ]
+[+OBJECT_FILTER_HWP.fit? ]
+[+OBJECT_FILTER_HWP_###.fit? Contains an index number for each exposure.]
+[+OBJECT_###_FILTER_HWP_###.fit? Contains an index number for each exposure and a number of the object. Some times the object may be written
+  using underscore (e.g. GSC_1925). The routine will support one underscore in the object name.]}
+[+OUTPUT STRUCTURES? Call \bgdir\b or \bgdir --man\b for detais.]
+[r:recursive?Find recursively fits file under the input tree. If r is not used, fits files are search only one level under the input path.]
+[f:filter?Group by filter. the filter value will be at the top of the hierarchy over the object name. If not specified, the filter will be under
+  the object.]
+[p:polarimetry?Group for polarimetry. The polarization field (ordinary or extraordinary) will be at the top if \b-p\b is not specified.
+  If specified, ordinary (or extraordinary) will be at the bottom of the hierarchy under hwp.]
+[t:stage?Create stage directory name stage under the destination. This is to avoid copying the data at the same level as other data in the destination.]
+[u:unique?Speficies that the ordinary and extraordinary fields of the images are not separated. Thus, no ordinary or extraordinary directories
+  are created and the copied data are the same size as the one in the source directories.]
+[i:interactive?If set, the users are asked if they want to abort when a file name does not match the expected conventions.]
+[o:objclass?Specify the objclass to set data in the destination. If it is not specified, data will be set to raw and staged in the raw directory.]:[oclass]
+[k:keyword?Enter a keyword name to look for in OBJCLASS header keyword. If \akey\a is set, only the fits file containing this value will be input.]:[key]
+[s:sourcepath?Enter a keyword name to look in the path of the fits file. If \asourcepath\a is set, only the fits file which path contains this value will be input.]:[spath]
+[d:debug?This option is used mainly for debugging. Typically, the routine calls idl and exit after the process is finished.
+  This makes the idl routines hard to debug. By using the \b-d\b option the idl shell will stay when a routine crashes and the user will be able
+  to inspect the values of the variables directly in the command line.]
+\ndestination source1 source2 source3...\n
+[+EXIT VALUES]{
+  [+0?Success.]
+  [+1?Failure.]}
+[+EXAMPLES]{ 
+  [+gmlof destination directory1?Stage the data under directory1 in destination.]
+  [+gmlof destination directory1 directory2?Stage the data under directory1 and directory2 in destination.]
+  [+gmlof -r destination directory1?Stage the data that is found recursively under directory1 in destination.]
+  [+gmlof -p destination directory1?Stage the data in directory1 in destination resulting in hierarchy for \bpolarimetry\b (see \gdir\b for more info).]
+  [+gmlof -u destination directory1?Stage the data in directory1 in destination resulting in hierarchy for \bunique\b image, i.e. without
+    separating the ordinary and extraordinary (see \gdir\b for more info).]
+  [+gmlof -t destination directory1?Stage the data in directory1 in destination resulting in hierarchy for \bstage\b (see \gdir\b for more info).]
+  [+gmlof -f destination directory1?Stage the data in directory1 in destination resulting in hierarchy for \bfilter\b (see \gdir\b for more info).]
+  [+gmlof -k RUNPHOTOMETRY destination directory1?Stage the data whose \bOBJCLASS\b equals \bRUNPHOTOMETRY\b under directory1 in destination.]
+  [+gmlof -s photometry destination directory1?Stage the data that whose path contains \bphotometry\b under directory1 in destination.]}'
+
+
+  #while getopts gdmq: option
+while	getopts "$usage" option
+do
+  case "${option}"
+  in
+    r) rflag=1;;
+    u) uflag=1;;
+    f) fflag=1;;
+    p) pflag=1;;
+    t) tflag=1;;
+    d) dflag=1;;
+    i) iflag=1;;
+    o) oclass=$OPTARG;;
+    k) if [ -z "$key" ]; then
+         key="'$OPTARG'"
+       else
+         key="$key,'$OPTARG'"
+       fi;;
+    s) if [ -z "$spath" ]; then
+         spath="'$OPTARG'"
+       else
+         spath="$spath,'$OPTARG'"
+       fi;;
+  esac
+done
+shift $(( OPTIND-1 ))
+
+# set recursive mode defined with a string to be appended to the idl command
+recstr=''
+if [ ! -z "$rflag" ]; then
+  echo "Checking files recursively at $1 location..."
+  recstr=', /recursive'
+fi
+if [ ! -z "$fflag" ]; then
+  echo "Grouping by filters..."
+  recstr="$recstr, /filter"
+fi
+if [ ! -z "$pflag" ]; then
+  echo "Grouping for polarimetry..."
+  recstr="$recstr, /polarimetry"
+fi
+if [ ! -z "$tflag" ]; then
+  echo "Creating stagin area..."
+  recstr="$recstr, /mkstage"
+fi
+if [ ! -z "$uflag" ]; then
+  echo "Producing unique file..."
+  recstr="$recstr, /single"
+fi
+if [ ! -z "$iflag" ]; then
+  echo "Interactive mode..."
+  recstr="$recstr, /interactive"
+fi
+if [ ! -z "$oclass" ]; then
+  echo "OBJCLASS is set to $oclass..."
+  recstr="$recstr, objclass='$oclass'"
+fi
+if [ ! -z "$key" ]; then
+  echo "Keyword selection..."
+  recstr="$recstr, keyword=[$key]"
+fi
+if [ ! -z "$spath" ]; then
+  echo "Path word selection..."
+  recstr="$recstr, keypath=[$spath]"
+fi
+
+cpath=$(which mlofidlpath)
+if [ "$cpath" = "" ]; then
+  echo "Routine setting IDL_PATH is not available"
+  exit 1
+fi
+tmpidlpath="/tmp/$(basename domlofidlpath)$$$$.lst"
+mlofidlpath $tmpidlpath
+if [ $? -eq 1 ]; then
+  echo "Problem setting IDL PATH"
+  if [ -f "$tmpidlpath" ]; then
+    rm $tmpidlpath 
+  fi
+  exit $?
+fi
+source $tmpidlpath
+if [ -f "$tmpidlpath" ]; then
+  echo "Removing $tmpidlpath..."
+  rm $tmpidlpath 
+fi
+
+# Set the resource call if available
+if [ ! -z "$FLUXCAL_RESOURCES" ]; then
+  if [[ ! -z "$gflag" || ! -z "$aflag" ]]; then
+    echo "Flux resource path is set to $FLUXCAL_RESOURCES"
+    recstr="$recstr, resource='$FLUXCAL_RESOURCES/'"
+  fi
+else
+  echo "FLUXCAL_RESOURCES is not set"
+  if [ ! -z "$aflag" ]; then
+    echo "Aborting!"
+    exit 1
+  fi
+fi
+
+# Define pipeline
+pipeline=gmlof
+
+destination=$1
+shift 1
+origins=$@
+
+
+for i in $origins
+do
+  # run pipeline
+  echo "idl $pipeline, $i, $destination $recstr"
+  
+  # This is exiting afterwords 
+  if [ -z "$dflag" ]; then
+    echo "RUNNING: $pipeline, '$i', '$destination' $recstr"
+    (  
+      echo "$pipeline, '$i', '$destination' $recstr"
+    )|idl
+  else
+    # This is staying in the shell. For debugging purposes mainly
+    # Create a temporary directory to store the idl command
+    tmpf="/tmp/$(basename docal)$$$$.lst"
+    echo "Creating $tmpf..."
+    echo "$pipeline, '$i', '$destination' $recstr" >> $tmpf
+    idl $tmpf
+    
+    # Delete the temporary directory for the command line
+    if [ -f "$tmpf" ]; then
+      echo "Removing $tmpf..."
+      rm $tmpf 
+    fi
+  fi
+done
+
+exit $?

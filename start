@@ -1,0 +1,44 @@
+; Common libraries
+.compile SetDifference.pro
+.compile cospol.pro
+.compile fitpolarimetry.pro
+.compile serkowski.pro
+.compile fitserkowski.pro
+.compile mkct.pro
+.compile findfiles.pro
+.compile mpfitfun.pro
+
+; General classes
+.compile hdpopulate.pro
+.compile fillstructure.pro
+.compile classdef.pro
+
+; General gui classes
+.compile gui_eventhand.pro
+.compile gui_emptyxmanager.pro
+.compile gui_badxmanager.pro
+.compile gui_table.pro
+.compile gui_plot.pro
+.compile gui_seltab.pro
+.compile gui_plottab.pro
+.compile gui_load.pro
+.compile gui_runstep.pro
+
+; Procedure step classes
+.compile runplan.pro
+.compile runstep.pro
+.compile runbadpix.pro
+.compile rundark.pro
+.compile runflatfield.pro
+.compile runcoadd.pro
+.compile runphotometry.pro
+.compile runpolarimetry.pro
+.compile runserkowski.pro
+.compile pipeline.pro
+
+.compile appcontroller.pro
+.compile mlof_gui.pro
+
+save,/routines,filename='mlofsrc.sav'
+
+mlof_gui

@@ -1,0 +1,203 @@
+#!/usr/bin/env ksh
+
+usage=$'[-1?1s1]
+[+NAME?dophot - Perform the photometry of fits files contained in the input trees.]
+[+DESCRIPTION?\bdophot is used to perform photometry of standard stars.\b It wraps an idl package
+  that calls the idl classes rundpsphotometry, runphotometry, runstep and classdef as well as the function fillstructure.
+  These are wrapped by an idl routine called dophotometry which is called directly by this shell script.]
+[+?The arguments to \bdophot\b must be the directories containing the standard stars to be calibrated. \bdophot\b
+  can be call with names of specific fits files. If called with a directory all the fits files under the input path
+  that are standards (OBJECT=STANDARD_FLUX) will be processed. The files are search at the same level of the input
+  directory or recursively under if the recursive option is set.]
+[+?The files that are processed with this routine are converted into level 3 data. This means that the PROCSTAT
+  is set to LEVEL_3 and additional keywords are added to the header indicating the aperture propreties as aperture size (STARAP),
+  inner and outer background size (STARBCK1 and STARBCK1), EPERADU (STPHPADU) and background (BCKPT, BCKADU) as well as the
+  star photometry as star position (ST0X and ST0Y), counts and error (ST0F and ST0EF) and background counts and error (ST0SK and ST0ESK).
+  Additionally, values of the shape of the stars can be printed into the headers using option /b-w/b.]
+[+?The values of the photoemrty is in the same units as the values of the counts in the image. For example, for level 2 FORCAST images,
+  the numbers will be in Me/s.]
+[+?The idl routines use default aperture and background sizes. However, the user can change these values using \b-a\b and \b-b\b options.]
+[+?\bWARNING\b The implementation with individual files is not available in this version.]
+[r:recursive?Find recursively fits file under the input tree. If r is not used, fits files are
+  search only one level under the input path.]
+[d:debug?Typically, the routine calls idl and exit after the process is finished. This makes the idl routines hard to debug. This option
+  is used mainly for debugging.]
+[i:interactive?The peak finding algorithm usually finds the peak of the standard star automatically. When \b-i\b is set, the interactive mode
+  is active and allows the user to manually select the star using atv. When the image displays, the user should select the star by pressing p and
+  then press q when done.]
+[t:trackpos?Used to keep track of previous star positions. It indicates the size of the sub image where the star in the next fits file will be searched. It
+  must be an integer higher than 10 to be set]#[track]
+[l:level3?Typically, only level 2 data is processed by this routine. However, a user may decide to force the routine to process level 3 data
+  by calling it with \b-l\b option. This allows to reprocess standards that has been already processed. For example, it can be usefull if
+  it is decided to reprocess the data and add the information about the shape of the profile using \b-w\b.]
+[q:dataqual?The value of the data quality keyword (DATAQUAL) that must be removed from the process. In other words, photometry of fits files
+  of that has DATAQUAL=\adataqual\a will not be done.]:[dataqual]
+[w:width?This option indicates the routine to write information into the fits headers about the profiles of the photometry.
+  This include the X and Y width of the FWHM (ST0WX, ST0WY), their errors (ST0eWX, ST0eWY), and the orientation of the ellipse
+  and its error (ST0WA and ST0eWA).]
+[p:profile?The profile to be used to fit the star. Default profile is MOFFAT, but \aprofile\a=GAUSSIAN or \aprofile\a=LORENTZIAN can be set by calling \b-p-b.]:[profile]
+[a:aperture?Input aperture size.]#[aper]
+[b:background?Input background size. It should be 2D array of integers.]#[bck]
+[o:overwrite?Outputs are written at the same level as the inputs. Thus, the input data is overwritten. Basically, this means that the headers
+  are upated with the new photometry. This is useful when re-doing the photometry of some products because it avoids the creation of new subfolder.]
+[k:keyword?Enter a keyword name to look for in OBJCLASS header keyword. If k is set, only the fits file containing this value will be input.]:[key]
+[s:sourcepath?Enter a keyword name to look in the path of the fits file. If k is set, only the fits file which path contains this value will be input.]:[spath]
+\nfiles directories\n
+[+EXIT VALUES]{
+  [+0?Success.]
+  [+1?Failure.]}
+[+EXAMPLES]{ 
+  [+dophot file1.fits? Performs the photometry of file1.fits if it is a level 2 standard.]
+  [+dophot file1.fits file2.fits file3.fits? Performs the photometry of the three files if they are level 2 standards.]
+  [+dophot directory1? Performs the photometry of all the level 2 standards in directory1.]
+  [+dophot -r directory1? Performs the photometry of all the level 2 standards under directory1. The files are search recursively under directory1.]
+  [+dophot directory1 file1.fits directory2? Performs the photometry of all the level 2 standards in directory1 and directory2 as well
+    as the photometry of file1.fits if it is a level 2 standard.]
+  [+dophot -a 15 -b \[20,25 file1.fits? Performs the photometry of file1.fits if it is a level 2 standard. The aperture used is 15 pixels and the inner
+    and background radii are 20 and 25 pixels.]
+  [+dophot -w file1.fits?Performs the photometry of file1.fits if it is a level 2 standard and includes the
+    information of the profiles in the level 3 produced fits file. The default profile (MOFFAT) is used to fit the star.]
+  [+dophot -w -p GAUSSIAN file1.fits?Performs the photometry of file1.fits if it is a level 2 standard and includes the
+    information of the profiles in the level 3 produced fits file. A GAUSSIAN profile is used to fit the star.]}'
+#dpsusage usage
+
+#while getopts rlmwa:o: option
+while	getopts "$usage" option
+do
+  case "${option}"
+  in
+    r) rflag=1;;
+    l) lflag=1;;
+    d) mflag=1;;
+    o) oflag=1;;
+    i) iflag=1;;
+    t) track=$OPTARG;;
+    w) wflag=1;;
+    p) profile=$OPTARG;;
+    a) aperture=$OPTARG;;
+    b) background=$OPTARG;;
+    k) if [ -z "$key" ]; then
+         key="'$OPTARG'"
+       else
+         key="$key,'$OPTARG'"
+       fi;;
+    s) if [ -z "$spath" ]; then
+         spath="'$OPTARG'"
+       else
+         spath="$spath,'$OPTARG'"
+       fi;;
+    q) qualkey=$OPTARG;;
+  esac
+done
+shift $(( OPTIND-1 ))
+
+if [ $# -lt 1 ]; then
+  echo "Usage: dophot [options] directory1 directory2 ..."
+  exit 1
+fi
+
+# set recursive mode defined with a string to be appended to the idl command
+recstr=''
+if [ ! -z "$rflag" ]; then
+  echo "Checking files recursively at $1 location..."
+  recstr=', recursive=1'
+fi
+if [ ! -z "$lflag" ]; then
+  echo "Measuring photometry of level 3 files..."
+  recstr="$recstr, /level3"
+fi
+if [ ! -z "$iflag" ]; then
+  echo "Interactive mode..."
+  recstr="$recstr, /interactive"
+fi
+if [ ! -z "$track" ]; then
+  echo "Tracking mode - size is $track..."
+  recstr="$recstr, trackpos=$track"
+fi
+if [ ! -z "$oflag" ]; then
+  echo "Overwrite mode..."
+  recstr="$recstr, /overwrite"
+fi
+if [ ! -z "$key" ]; then
+  echo "Keyword selection..."
+  recstr="$recstr, keyword=[$key]"
+fi
+if [ ! -z "$spath" ]; then
+  echo "Path word selection..."
+  recstr="$recstr, keypath=[$spath]"
+fi
+if [ ! -z "$aperture" ]; then
+  echo "Requested aperture is $aperture..."
+  recstr="$recstr, aperture=$aperture"
+fi
+if [ ! -z "$background" ]; then
+  echo "Requested background is $background..."
+  recstr="$recstr, background=$background"
+fi
+if [ ! -z "$wflag" ]; then
+  echo "Requesting FWHM calculations..."
+  recstr="$recstr, /dofwhm"
+fi
+if [ ! -z "$profile" ]; then
+  echo "Requesting $profile profile..."
+  recstr="$recstr, profile='$profile'"
+fi
+if [ ! -z "$qualkey" ]; then
+  echo "Removing files with flag $qualkey..."
+  recstr="$recstr, dataqual='$qualkey'"
+fi
+
+# Set IDL path
+cpath=$(which mlofidlpath)
+if [ "$cpath" = "" ]; then
+  echo "IDL_PATH routine is not available"
+  exit 1
+fi
+tmpidlpath="/tmp/$(basename domlofidlpath)$$$$.lst"
+mlofidlpath $tmpidlpath
+if [ $? -eq 1 ]; then
+  echo "Problem setting IDL PATH"
+  if [ -f "$tmpidlpath" ]; then
+    rm $tmpidlpath 
+  fi
+  exit $?
+fi
+source $tmpidlpath
+
+# Remove temporary files
+if [ -f "$tmpidlpath" ]; then
+  echo "Removing $tmpidlpath..."
+  rm $tmpidlpath 
+fi
+
+# Set pipeline name
+pipeline=dophotometry
+
+list=$@
+
+for i in $list
+do
+  if [[ -d $i || -f $i ]]; then
+    echo "idl $pipeline, $i $recstr"
+    # This is exiting afterwords 
+    if [ -z "$mflag" ]; then
+      (  
+        echo "$pipeline, '$i' $recstr"
+      )|idl
+    else
+      # Create a temporary directory to store the idl command
+      tmpf="/tmp/$(basename dophot)$$$$.lst"
+      echo "Creating $tmpf..."
+      echo "$pipeline, '$i' $recstr" >> $tmpf
+      idl $tmpf
+      
+      # Delete the temporary directory for the command line
+      if [ -f "$tmpf" ]; then
+        echo "Removing $tmpf..."
+        rm $tmpf 
+      fi
+    fi
+  fi
+done
+
+exit $?

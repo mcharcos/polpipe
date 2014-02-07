@@ -1,0 +1,171 @@
+#!/usr/bin/env ksh
+
+usage=$'[-1?1s1]
+[+NAME?dobadpix - Removes bad pixels of input data.]
+[+DESCRIPTION?\bdobadpix finds and removes bad pixels of fits files.\b It wraps the idl routine dobadpix.pro
+  that calls the idl runbadpixel class. The runbadpixel class uses the find_outlier routine to identify the bad pixels written by
+  1997, Frank Varosi in 1997.]
+[+?As described in the routine, "Possible outliers are found using the reverse indices from the histogram of image.
+  Starting from the maximum bin and working down, each outlier candidate is checked by finding the mean (or median) and
+  standard deviation of pixels in box centered at candidate pixel of the image (excluding that pixel), and if the center value exceeds
+  specified number of standard deviations from the mean (or median), the subscript is added to array of subscripts. The process is repeated
+  starting at the minimum bin and working to more positive values. This method of using histograms is faster than function sigma_filter
+  for large images, and is more successful at finding outliers.]
+[+?\bdobadpix\b takes the input paths where the fits files live or the fits file names. If a path is input, \bdobadpix\b finds the fits files within
+  either at the directory level or recursively if the \b-r\b option is set.]
+[+?By default, \bdbadpix\b calculates the bad pixels from the dark files found in the input path. It creates a bad pixel mask where the bad pixels are set to 1
+  when the value of the pixel in the dark image is higher than Nsigma times the standard deviation from the median level.
+  The correction of the bad pixels is performed by calculating the average of the surrounding pixels. If no dark is input, \bdobadpix\b uses the input
+  images to calculate the bad pixel mask. As an additional option, the bad pixel mask can be input using the \b-b\b option.]
+[r:recursive?Find recursively fits file under the input tree. If r is not used, fits files are
+  search only one level under the input path.]
+[b:bpmask?Input badpixel mask to be used to correct bad pixels. If \b-b\b is set, the bad pixels will not be calculated from the input images.]:[bpfile]
+[a:all?Indicates that all the input data is to be corrected together. when it is not set, each input is consider as an insolated input as if the
+  script would be called separately for each of the inputs.]
+[k:keyword?Enter a keyword name to look for in OBJCLASS header keyword. If k is set, only the fits file containing this value will be input.]:[key]
+[s:sourcepath?Enter a keyword name to look in the path of the fits file. If k is set, only the fits file which path contains this value will be input.]:[spath]
+[d:debug?This option is used mainly for debugging. Typically, the routine calls idl and exit after the process is finished.
+  This makes the idl routines hard to debug. By using the \b-d\b option the idl shell will stay when a routine crashes and the user will be able
+  to inspect the values of the variables directly in the command line.]
+\nfiles directories\n
+[+EXIT VALUES]{
+  [+0?Success.]
+  [+1?Failure.]}
+[+EXAMPLES]{ 
+  [+dobadpix -a dark.fits file1.fits? Correct the bad pixels of file1.fits. The resulting files will be the processed file file1--runbadpixel.fit
+    and the bad pixel mask dark-runbadpix.fit.]
+  [+dobadpix directory1? Correct the bad pixels of the fits files in directory1. This directory should contain darks and input files to be processed.]
+  [+dobadpix -r directory1? Correct the bad pixels of the fits files found recursively under directory1.]}'
+
+while	getopts "$usage" option
+do
+  case "${option}"
+  in
+    r) rflag=1;;
+    b) bpfile=$OPTARG;;
+    d) mflag=1;;
+    a) aflag=1;;
+    k) if [ -z "$key" ]; then
+         key="'$OPTARG'"
+       else
+         key="$key,'$OPTARG'"
+       fi;;
+    s) if [ -z "$spath" ]; then
+         spath="'$OPTARG'"
+       else
+         spath="$spath,'$OPTARG'"
+       fi;;
+  esac
+done
+shift $(( OPTIND-1 ))
+
+if [ $# -lt 1 ]; then
+  echo "Usage: dobadpix [options] directory1 directory2 ..."
+  exit 1
+fi
+
+# set recursive mode defined with a string to be appended to the idl command
+recstr=''
+if [ ! -z "$rflag" ]; then
+  echo "Checking files recursively at $1 location..."
+  recstr="$recstr, recursive=1"
+fi
+if [ ! -z "$bpfile" ]; then
+  echo "Input bad pixel mas is $bpfile..."
+  if [ ! -f "$bpfile" ]; then
+    echo "    ... file does not exist"
+  else
+    recstr="$recstr, bpmask='$bpfile'"
+  fi
+fi
+
+# Set IDL path
+cpath=$(which mlofidlpath)
+if [ "$cpath" = "" ]; then
+  echo "IDL_PATH routine is not available"
+  exit 1
+fi
+tmpidlpath="/tmp/$(basename domlofidlpath)$$$$.lst"
+mlofidlpath $tmpidlpath
+if [ $? -eq 1 ]; then
+  echo "Problem setting IDL PATH"
+  if [ -f "$tmpidlpath" ]; then
+    rm $tmpidlpath 
+  fi
+  exit $?
+fi
+source $tmpidlpath
+
+# Remove temporary files
+if [ -f "$tmpidlpath" ]; then
+  echo "Removing $tmpidlpath..."
+  rm $tmpidlpath 
+fi
+
+# Set pipeline name
+pipeline=dobadpix
+
+list=$@
+
+if [ ! -z "$aflag" ]; then
+  for i in $list
+  do
+    if [[ -d $i || -f $i ]]; then
+      if [ -z "$inlist" ]; then
+        inlist="'$i'"
+      else
+        inlist="$inlist,'$i'"
+      fi
+    fi
+  done
+  
+  if [ ! -z "$inlist" ]; then
+    inlist="[$inlist]"
+    echo "idl $pipeline, $inlist $recstr"
+    # This is exiting afterwords 
+    if [ -z "$mflag" ]; then
+      (  
+        echo "$pipeline, $inlist $recstr"
+      )|idl
+    else
+      # Create a temporary directory to store the idl command
+      tmpf="/tmp/$(basename $pipeline)$$$$.lst"
+      echo "Creating $tmpf..."
+      echo "$pipeline, $inlist $recstr" >> $tmpf
+      idl $tmpf
+      
+      # Delete the temporary directory for the command line
+      if [ -f "$tmpf" ]; then
+        echo "Removing $tmpf..."
+        rm $tmpf 
+      fi
+    fi
+  fi
+else
+  for i in $list
+  do
+    if [[ -d $i || -f $i ]]; then
+      echo "idl $pipeline, $i $recstr"
+      # This is exiting afterwords 
+      if [ -z "$mflag" ]; then
+        (  
+          echo "$pipeline, '$i' $recstr"
+        )|idl
+      else
+        # Create a temporary directory to store the idl command
+        tmpf="/tmp/$(basename $pipeline)$$$$.lst"
+        echo "Creating $tmpf..."
+        echo "$pipeline, '$i' $recstr" >> $tmpf
+        idl $tmpf
+        
+        # Delete the temporary directory for the command line
+        if [ -f "$tmpf" ]; then
+          echo "Removing $tmpf..."
+          rm $tmpf 
+        fi
+      fi
+    fi
+  done
+fi
+
+exit $?

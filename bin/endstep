@@ -1,0 +1,122 @@
+#!/usr/bin/env ksh
+
+usage=$'[-1?1s1]
+[+NAME?endstep - Rearrange the directory structure to follow the standards required by pipemlof.]
+[+DESCRIPTION?\bendstep is used by pipemlof to move the directories created at a specific step of the pipeline to the correct level of the
+  directory structure.\b For each fits file under the \bprevious\b hierarchy, the products are usually created under a new \bnext\b directory at the same level of the fits file.
+  \bendstep\b moves the directory with the outputs so \bnext\b and \bprevious\b are at the same level. This results on having all steps of the processing
+  (\braw\b, \bbadpix\b, \bflatfield\b, \bdarkremove\b and \bphotometry\b under the directory created for each objects. Each of the directories
+  containing a specific step will have a directory for each hwp position below.]
+\ndata_directory previous_step next_step\n
+[+EXIT VALUES]{
+  [+0?Success.]
+  [+1?Failure.]}
+[+EXAMPLES]{ 
+  [+endstep /Users/mcharcos/mlof/stage/ordinary/b flatfield dark? For each \bOBJECT=objectX\b and \bHWP=hwpN\b, it moves the dark directory under 
+    /Users/mcharcos/mlof/stage/ordinary/b/objectX/flatdield/hwpN/ to /Users/mcharcos/mlof/stage/ordinary/bobjectX]}
+[+INPUT HIERARCHY]{ 
+  [+/Users/mcharcos/mlof/stage/ordinary/b/object1/?]
+  [+......................................object1/flatfield/hwp1/?]
+  [+......................................object1/flatfield/hwp1/file1.fits?]
+  [+......................................object1/flatfield/hwp1/file2.fits?]
+  [+......................................object1/flatfield/hwp1/file3.fits?]
+  [+......................................object1/flatfield/hwp1/file4.fits?]
+  [+......................................object1/flatfield/hwp1/..........?]
+  [+......................................object1/flatfield/hwp1/dark/?]
+  [+......................................object1/flatfield/hwp1/dark/file1.fits?]
+  [+......................................object1/flatfield/hwp1/dark/file2.fits?]
+  [+......................................object1/flatfield/hwp1/dark/file3.fits?]
+  [+......................................object1/flatfield/hwp1/dark/file4.fits?]
+  [+......................................object1/flatfield/hwp1/dark/..........?]
+  [+......................................object1/flatfield/hwp2/?]
+  [+......................................object1/flatfield/hwp2/file1.fits?]
+  [+......................................object1/flatfield/hwp2/file2.fits?]
+  [+......................................object1/flatfield/hwp2/file3.fits?]
+  [+......................................object1/flatfield/hwp2/file4.fits?]
+  [+......................................object1/flatfield/hwp2/..........?]
+  [+......................................object1/flatfield/hwp2/dark/?]
+  [+......................................object1/flatfield/hwp2/dark/file1.fits?]
+  [+......................................object1/flatfield/hwp2/dark/file2.fits?]
+  [+......................................object1/flatfield/hwp2/dark/file3.fits?]
+  [+......................................object1/flatfield/hwp2/dark/file4.fits?]
+  [+......................................object1/flatfield/hwp2/dark/..........?]
+  [+..........................................................?]
+  [+......................................objectX/flatfield/hwpN/?]
+  }
+[+OUTPUT HIERARCHY]{ 
+  [+/Users/mcharcos/mlof/stage/ordinary/b/object1/?]
+  [+......................................object1/flatfield/hwp1/?]
+  [+......................................object1/flatfield/hwp1/file1.fits?]
+  [+......................................object1/flatfield/hwp1/file2.fits?]
+  [+......................................object1/flatfield/hwp1/file3.fits?]
+  [+......................................object1/flatfield/hwp1/file4.fits?]
+  [+......................................object1/flatfield/hwp1/..........?]
+  [+......................................object1/flatfield/hwp2/?]
+  [+......................................object1/flatfield/hwp2/file1.fits?]
+  [+......................................object1/flatfield/hwp2/file2.fits?]
+  [+......................................object1/flatfield/hwp2/file3.fits?]
+  [+......................................object1/flatfield/hwp2/file4.fits?]
+  [+......................................object1/flatfield/hwp2/..........?]
+  [+......................................objectX/flatfield/hwpN/?]
+  [+..........................................................?]
+  [+......................................object1/dark/hwp1/?]
+  [+......................................object1/dark/hwp1/file1.fits?]
+  [+......................................object1/dark/hwp1/file2.fits?]
+  [+......................................object1/dark/hwp1/file3.fits?]
+  [+......................................object1/dark/hwp1/file4.fits?]
+  [+......................................object1/dark/hwp1/..........?]
+  [+......................................object1/dark/hwp2/?]
+  [+......................................object1/dark/hwp2/file1.fits?]
+  [+......................................object1/dark/hwp2/file2.fits?]
+  [+......................................object1/dark/hwp2/file3.fits?]
+  [+......................................object1/dark/hwp2/file4.fits?]
+  [+......................................object1/dark/hwp2/..........?]
+  [+......................................objectX/dark/hwpN/?]
+  [+..........................................................?]
+  }'
+
+while	getopts "$usage" option
+do
+  case "${option}"
+  in
+  esac
+done
+inputs=$@
+shift $(( OPTIND-1 ))
+
+datadir=$1
+previous=$2
+next=$3
+
+list=$(ls $datadir | grep -v "flat")
+for i in $list
+do
+    echo "Checking $datadir/$i/$previous"
+    if [  -d "$datadir/$i/$previous" ]; then
+        
+        hwplist=$(ls $datadir/$i/$previous)
+        
+        for hwp in $hwplist
+        do
+          if [ -d $datadir/$i/$previous/$hwp/$next ]; then
+            echo "Moving $next step to parent directory"
+            if [ ! -d "$datadir/$i/$next/$hwp" ]; then
+              mkdir -p $datadir/$i/$next/$hwp
+            fi
+            mv $datadir/$i/$previous/$hwp/$next/* $datadir/$i/$next/$hwp
+            rm -rf $datadir/$i/$previous/$hwp/$next
+            
+            touch $datadir/$i/$next/step.success
+            if [ -f "$datadir/$i/$next/step.failed" ]; then rm $datadir/$i/$next/step.failed; fi
+          fi
+        done
+        if [ ! -d $datadir/$i/$next ]; then
+          echo "Copying $datadir/$i/$previous step to $datadir/$i/$next"
+          cp -r $datadir/$i/$previous $datadir/$i/$next
+          touch $datadir/$i/$next/step.failed
+          if [ -f "$datadir/$i/$next/step.success" ]; then rm $datadir/$i/$next/step.success; fi
+          # change objclass value in header?
+          # sxaddpar $datadir/$i/$next OBJCLASS '$next'
+        fi
+    fi
+done

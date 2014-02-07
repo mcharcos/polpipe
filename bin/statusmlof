@@ -1,0 +1,217 @@
+#!/usr/bin/env ksh
+
+usage=$'[-1?1s1]
+[+NAME?statusmlof - Returns a summary of the data and its processing status.]
+[+DESCRIPTION?\bsatusmlof returns the list of data under a directory tree for each processing step\b. It assumes the same directory structure as \bpipemlof\b.]
+[+?\bstatysmlof\b returns a summary of all the observed objects, the number of filter and hwp for each object and the processing stage of each of the objects
+  as well as the status of the processing (succeeded or failed).]
+[+?\bdbadpix\b calculates the bad pixels from the dark files. It creates a bad pixel mask where the bad pixels are set to 1 when the value of the
+  pixel in the dark image is higher than Nsigma times the standard deviation from the median level. The correction of the bad pixels is performed by
+  calculating the average of the surrounding pixels.]
+[o:object?Display only objects with \aobj\a pattern.]:[obj]
+[f:filter?Display only objects with \afilt\a pattern.]:[filt]
+[h:hwp?Display only objects with \ahwp\a pattern.]:[hwp]
+[s:steps?Display details about step.]
+[v:verbose?Displays in screen information as checking data.]
+\ndirectory\n
+[+EXIT VALUES]{
+  [+0?Success.]
+  [+1?Failure.]}
+[+EXAMPLES]{ 
+  [+statusmlof directory1? Returns a summary of the data under directory1 as specified above.]}'
+
+
+while	getopts "$usage" option
+do
+  case "${option}"
+  in
+    o) objuser=$OPTARG;; 
+    f) filtuser=$OPTARG;;
+    h) hwpuser=$OPTARG;;
+    s) sflag=1;;
+    v) vflag=1;;
+  esac
+done
+shift $(( OPTIND-1 ))
+
+stepbasics="raw badpix biasremove flatfield photometry"
+destination=$1
+echo "STAGE AREA: $destination"
+
+if [[ ! -d "$destination" ]]; then
+  echo "Staging area $destination does not exist";
+  exit 1
+fi
+
+if [ ! -z "$vflag" ]; then 
+    if [[ ! -d "$destination/ordinary" ]]; then echo "Staging area $destination does not contains ordinary tree"; fi
+    if [[ ! -d "$destination/extraordinary" ]]; then echo "Staging area $destination does not contains extraordinary tree"; fi
+    if [[ ! -d "$destination/polarimetry" ]]; then echo "Staging area $destination does not contains polarimetry tree"; fi
+fi
+
+# find objects
+if [ ! -z "$vflag" ]; then echo "Looking for object names..."; fi
+objtxtord="/tmp/$(basename objtxtord)$$$$.lst"
+objlistord=$(basename $(ls -d $destination/ordinary/*/* | grep -v "bias"))
+echo "$objlistord" > $objtxtord
+objtxtext="/tmp/$(basename objtxtext)$$$$.lst"
+objlistext=$(basename $(ls -d $destination/extraordinary/*/* | grep -v "bias"))
+echo "$objlistext" > $objtxtext
+objlist=$(sort -u $objtxtord $objtxtext)
+rm $objtxtord $objtxtext
+
+# Check objects
+for object in $objlist
+do
+    doobj=1
+    if [ ! -z "$objuser" ]; then
+      if [ -z $(echo "$object" | grep $objuser) ]; then
+        doobj=0
+      fi
+    fi
+    if [ "$object" == "flat" ]; then
+        doobj=0
+    fi
+    
+    if [ "$doobj" == "1" ]; then 
+        if [ ! -z "$vflag" ]; then echo "Looking for filters for object $object..."; fi
+        finalstr="$finalstr *** Object: $object \n"
+        filtlist=$(ls -d $destination/ordinary/*/$object | grep $object)
+        
+        for filtpath in $filtlist
+        do
+            ordfiltexist=0
+            extfiltexist=0
+            hwptxtord=""
+            hwptxtext=""
+            
+            filter=$(basename $(dirname $filtpath))
+            dofilt=1
+            if [ ! -z "$filtuser" ]; then
+              if [ -z $(echo "$filter" | grep $filtuser) ]; then
+                dofilt=0
+              fi
+            fi
+            if [ "$filter" == "dark" ]; then
+                dofilt=0
+            fi
+            
+            if [ "$dofilt" == "1" ]; then 
+                finalstr="$finalstr    |- FILTER: $filter \n"
+                
+                if [ ! -z "$vflag" ]; then echo "Looking for hwp for object $object and filter $filter..."; fi
+                if [ -d $destination/ordinary/$filter/$object/raw ]; then
+                    ordfiltexist=1
+                    hwptxtord="/tmp/$(basename hwptxtord)$$$$.lst"
+                    hwplistord=$(basename $(ls $destination/ordinary/$filter/$object/raw/))
+                    echo "$hwplistord" > $hwptxtord
+                fi
+                if [ -d $destination/extraordinary/$filter/$object/raw ]; then
+                    extfiltexist=1
+                    hwptxtext="/tmp/$(basename hwptxtext)$$$$.lst"
+                    hwplistext=$(basename $(ls $destination/extraordinary/$filter/$object/raw/))
+                    echo "$hwplistext" > $hwptxtext
+                fi
+                hwplist=$(sort -u $hwptxtord $hwptxtext)
+                rm $hwptxtord $hwptxtext
+                
+                for hwp in $hwplist
+                do
+                    dohwp=1
+                    if [ ! -z "$hwpuser" ]; then
+                      if [ $hwp -ne $hwpuser ]; then
+                        dohwp=0
+                      fi
+                    fi
+                    
+                    if [ "$dohwp" == "1" ]; then 
+                        finalstr="$finalstr    |   |--- HWP: $hwp \n"
+                        if [ ! -z "$sflag" ]; then 
+                            if [ ! -z "$vflag" ]; then echo "Checking ordinary ray for object $object, filter $filter and hwp $hwp"; fi
+                            if [ ! -z $(echo $hwplistord |grep $hwp) ]; then
+                              steppath=$(ls -d $destination/ordinary/$filter/$object/*/* | grep $hwp)
+                              steplist=""
+                              for step in $stepbasics
+                              do
+                                if [ ! -z $(echo $steppath | grep "$step") ]; then
+                                  if [ -f $destination/ordinary/$filter/$object/$step/step.failed ]; then
+                                    steplist="$steplist $step($(ls $destination/ordinary/$filter/$object/$step/$hwp/*.fit* |wc -l | tr -d ' '))[failed] "
+                                  else
+                                    steplist="$steplist $step($(ls $destination/ordinary/$filter/$object/$step/$hwp/*.fit* |wc -l | tr -d ' ')) "
+                                  fi
+                                fi
+                              done
+                              finalstr="$finalstr    |   |       |- o >>>>  $steplist \n"
+                            fi
+                            if [ ! -z "$vflag" ]; then echo "Checking extraordinary ray for object $object, filter $filter and hwp $hwp"; fi
+                            if [ ! -z $(echo $hwplistext |grep $hwp) ]; then
+                              steppath=$(ls -d $destination/extraordinary/$filter/$object/*/* | grep $hwp)
+                              steplist=""
+                              for step in $stepbasics
+                              do
+                                if [ ! -z $(echo $steppath | grep "$step") ]; then
+                                  if [ -f $destination/extraordinary/$filter/$object/$step/step.failed ]; then
+                                    steplist="$steplist $step($(ls $destination/ordinary/$filter/$object/$step/$hwp/*.fit* |wc -l | tr -d ' '))[failed] "
+                                  else
+                                    steplist="$steplist $step($(ls $destination/ordinary/$filter/$object/$step/$hwp/*.fit* |wc -l | tr -d ' ')) "
+                                  fi
+                                fi
+                              done
+                              finalstr="$finalstr    |   |       |- e >>>>  $steplist \n"
+                            fi
+                        fi
+                    fi
+                done
+            fi
+        done
+    fi
+done
+
+# Check flats
+flatstr="FLATS (filter, hwp : files): \n"
+filtflatord=$(ls -d $destination/ordinary/*/flat/raw/*)
+flatstr="$flatstr ordinary: "
+for hwppath in $filtflatord
+do
+    hwp=$(basename $hwppath)
+    filter=$(basename $(dirname $(dirname $(dirname $hwppath))))
+    flatstr="$flatstr ($filter, $hwp : $(ls -d $destination/ordinary/$filter/flat/raw/$hwp/*.fit* | wc -l | tr -d ' '))"
+done
+flatstr="$flatstr \n"
+
+filtflatext=$(ls -d $destination/extraordinary/*/flat/raw/*)
+flatstr="$flatstr extraordinary: "
+for hwppath in $filtflatext
+do
+    hwp=$(basename $hwppath)
+    filter=$(basename $(dirname $(dirname $(dirname $hwppath))))
+    flatstr="$flatstr ($filter, $hwp : $(ls -d $destination/extraordinary/$filter/flat/raw/$hwp/*.fit* | wc -l | tr -d ' ')) "
+done
+flatstr="$flatstr \n"
+
+# Check darks
+darkstr="BIAS: \n"
+if [ ! -z "$(ls -d $destination/ordinary/dark)" ]; then
+    darkstr="$darkstr      - ordinary $(ls $destination/ordinary/dark/raw/*/*.fit* |wc -l | tr -d ' ') files \n"
+else
+    darkstr="$darkstr      - ordinary failed \n"
+fi
+if [ ! -z "$(ls -d $destination/extraordinary/dark)" ]; then
+    darkstr="$darkstr      - extraordinary $(ls $destination/extraordinary/dark/raw/*/*.fit* |wc -l | tr -d ' ') files \n"
+else
+    darkstr="$darkstr      - extraordinary failed \n"
+fi
+
+
+echo ""
+echo ""
+echo "-------------------"
+echo "---   SUMMARY   ---"
+echo "-------------------"
+echo ""
+echo -e "$finalstr"
+echo ""
+echo -e "$flatstr"
+echo ""
+echo -e "$darkstr"
+

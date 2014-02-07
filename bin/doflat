@@ -1,0 +1,177 @@
+#!/usr/bin/env ksh
+
+usage=$'[-1?1s1]
+[+NAME?doflat - Correct flat field effects from the input data.]
+[+DESCRIPTION?\bdoflat correct the flat field of fits images.\b It wraps the idl routine doflatfield.pro
+  that calls the idl runflatfield class.]
+[+?\bdoflat\b takes the input paths where the fits files live or the fits file names. If a path is input, \bdoflat\b finds the fits file within
+  either at the directory level or recursively if the \b-r\b option is set.]
+[+?\bdoflat\b averages the input flat images and creates a master flat that is then scaled and divided to the input images that are not flats. Flat images
+  contains the value \bFLAT\b for the \bOBJECT\b keyword.]
+[r:recursive?Find recursively fits file under the input tree. If r is not used, fits files are
+  search only one level under the input path.]
+[e:exposure?Exposure time separations.]:[exp]
+[i:interactive?Set interactive flatfield error handeling when no masterflat was found and selecting exposure time ranges for flats.]
+[a:all?Indicates that all the input data is to be corrected together. when it is not set, each input is consider as an insolated input as if the
+  script would be called separately for each of the inputs.]
+[k:keyword?Enter a keyword name to look for in OBJCLASS header keyword. If k is set, only the fits file containing this value will be input.]:[key]
+[s:sourcepath?Enter a keyword name to look in the path of the fits file. If k is set, only the fits file which path contains this value will be input.]:[spath]
+[d:debug?This option is used mainly for debugging. Typically, the routine calls idl and exit after the process is finished.
+  This makes the idl routines hard to debug. By using the \b-d\b option the idl shell will stay when a routine crashes and the user will be able
+  to inspect the values of the variables directly in the command line.]
+\nfiles directories\n
+[+EXIT VALUES]{
+  [+0?Success.]
+  [+1?Failure.]}
+[+EXAMPLES]{ 
+  [+doflat -a file1.fits flat.fits? Correct the flat field of file1.fits using flat.fits.]
+  [+doflat directory1? Correct the flat field of the fits files in directory1. The directory1 must contain flat fields.]
+  [+doflat -r directory1? Correct the flat field of the fits files found recursively under directory1.]}'
+
+while	getopts "$usage" option
+do
+  case "${option}"
+  in
+    r) rflag=1;;
+    d) mflag=1;;
+    a) aflag=1;;
+    i) iflag=1;;
+    e) if [ -z "$exp" ]; then
+        exp="$OPTARG"
+       else
+        exp="$exp,$OPTARG"
+       fi;;
+    k) if [ -z "$key" ]; then
+         key="'$OPTARG'"
+       else
+         key="$key,'$OPTARG'"
+       fi;;
+    s) if [ -z "$spath" ]; then
+         spath="'$OPTARG'"
+       else
+         spath="$spath,'$OPTARG'"
+       fi;;
+  esac
+done
+shift $(( OPTIND-1 ))
+
+
+if [ $# -lt 1 ]; then
+  echo "Usage: dophot [options] directory1 directory2 ..."
+  exit 1
+fi
+
+# set recursive mode defined with a string to be appended to the idl command
+recstr=''
+if [ ! -z "$rflag" ]; then
+  echo "Checking files recursively at $1 location..."
+  recstr=", recursive=1"
+fi
+if [ ! -z "$iflag" ]; then
+  echo "Interactive mode..."
+  recstr="$recstr, /interactive"
+fi
+if [ ! -z "$key" ]; then
+  echo "Keyword selection..."
+  recstr="$recstr, keyword=[$key]"
+fi
+if [ ! -z "$spath" ]; then
+  echo "Path word selection..."
+  recstr="$recstr, keypath=[$spath]"
+fi
+if [ ! -z "$exp" ]; then
+  echo "Exposures: $exp"
+  recstr="$recstr, exposures=[$exp]"
+fi
+
+# Set IDL path
+cpath=$(which mlofidlpath)
+if [ "$cpath" = "" ]; then
+  echo "IDL_PATH routine is not available"
+  exit 1
+fi
+tmpidlpath="/tmp/$(basename domlofidlpath)$$$$.lst"
+mlofidlpath $tmpidlpath
+if [ $? -eq 1 ]; then
+  echo "Problem setting IDL PATH"
+  if [ -f "$tmpidlpath" ]; then
+    rm $tmpidlpath 
+  fi
+  exit $?
+fi
+source $tmpidlpath
+
+# Remove temporary files
+if [ -f "$tmpidlpath" ]; then
+  echo "Removing $tmpidlpath..."
+  rm $tmpidlpath 
+fi
+
+# Set pipeline name
+pipeline=doflatfield
+
+list=$@
+
+if [ ! -z "$aflag" ]; then
+  for i in $list
+  do
+    if [[ -d $i || -f $i ]]; then
+      if [ -z "$inlist" ]; then
+        inlist="'$i'"
+      else
+        inlist="$inlist,'$i'"
+      fi
+    fi
+  done
+  
+  if [ ! -z "$inlist" ]; then
+    inlist="[$inlist]"
+    echo "idl $pipeline, $inlist $recstr"
+    # This is exiting afterwords 
+    if [ -z "$mflag" ]; then
+      (  
+        echo "$pipeline, $inlist $recstr"
+      )|idl
+    else
+      # Create a temporary directory to store the idl command
+      tmpf="/tmp/$(basename $pipeline)$$$$.lst"
+      echo "Creating $tmpf..."
+      echo "$pipeline, $inlist $recstr" >> $tmpf
+      idl $tmpf
+      
+      # Delete the temporary directory for the command line
+      if [ -f "$tmpf" ]; then
+        echo "Removing $tmpf..."
+        rm $tmpf 
+      fi
+    fi
+  fi
+else
+  for i in $list
+  do
+    if [[ -d $i || -f $i ]]; then
+      echo "idl $pipeline, $i $recstr"
+      # This is exiting afterwords 
+      if [ -z "$mflag" ]; then
+        (  
+          echo "$pipeline, '$i' $recstr"
+        )|idl
+      else
+        echo "Debugging mode in script calling $pipeline"
+        # Create a temporary directory to store the idl command
+        tmpf="/tmp/$(basename $pipeline)$$$$.lst"
+        echo "Creating $tmpf..."
+        echo "$pipeline, '$i' $recstr" >> $tmpf
+        idl $tmpf
+        
+        # Delete the temporary directory for the command line
+        if [ -f "$tmpf" ]; then
+          echo "Removing $tmpf..."
+          rm $tmpf 
+        fi
+      fi
+    fi
+  done
+fi
+
+exit $?
