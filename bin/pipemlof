@@ -11,7 +11,7 @@ usage=$'[-1?1s1]
   base, this will simplify manual reprocessing.]
 [+?Given one or more input directories, this routine stage the data in the destination directory and perform all the steps up to the photometry
   for each of the filters found among the input data. Then, the data is staged again for the polarimetry calculation so ordinary and extraordinary
-  data is grouped under the same tree. The polarization is calculated for each object and filter. Finally, the serkwoskii curve is fitted for
+  data is grouped under the same tree. The polarization is calculated for each object and filter. Finally, the serkowski curve is fitted for
   each object considering all the filters of the input data.]
 [r:recursive?Find recursively fits file under the input tree. If r is not used, fits files are search only one level under the input path.]
 [g:group?Indicates if the data has to be grouped before starting processing. When \b-g\b is not set, the input directory must contain
@@ -19,11 +19,14 @@ usage=$'[-1?1s1]
   when staging more than one directory together. However, files with the same name will be overwritten.]:[origin]
 [o:object?Indicates a specific object to be reduced.]:[obj]
 [w:filter?Indicates a specific filter to be reduced.]:[filt]
+[c:current-step?Start, end at this step in interactive mode. It will force to re-do the step if it was previously done. It will overwrite other values on the e, x, f and i options.]:[cstep]
 [f:force?Typically, the steps are not performed if the output directory for that step exists. \b-f\b indicates to force the processing
   from the \afstep\a step. That means that even if the data of the \afstep\a step exist, this and the following steps will be perform and the
   products overwritten. The values for \afstep\a are \bbadpix\b, \bbiasremove\b, \bflatfield\b, \bphotometry\b, \bpolgroup\b, \bpolarimetry\b]:[fstep]
+[x:start?Tell the pipeline to start at a specific step among \bbadpix\b, \bflatfield\b, \bbiasremove\b,
+  \bphotometry\b, \bpolgroup\b, \bpolarimetry\b, \binstpol\b and \bserkowski\b]:[xstep]
 [e:end?Indicates the step after which the pipeline stops. Values for \aestep\a are \bgroup\b, \bbadpix\b, \bflatfield\b, \bbiasremove\b,
-  \bphotometry\b, \bgroupphot\b, \bpolarimetry\b and \bserkowski\b]:[estep]
+  \bphotometry\b, \bpolgroup\b, \bpolarimetry\b and \bserkowski\b]:[estep]
 [s:skip?Indicates the step to be skiped. Values for \aestep\a are \bbadpix\b, \bflatfield\b or \bbiasremove\b]:[sstep]
 [b:bpmask?Input badpixel mask to be used to correct bad pixels. At least two files must be input, first for ordinary ray and second for extraordinary.
   If \b-b\b is set, the bad pixels will not be calculated from the input images.
@@ -35,6 +38,7 @@ usage=$'[-1?1s1]
 [d:debug?This option is used mainly for debugging. Typically, the routine calls idl and exit after the process is finished.
   This makes the idl routines hard to debug. By using the \b-d\b option the idl shell will stay when a routine crashes and the user will be able
   to inspect the values of the variables directly in the command line. The values for \adstep\a are \bbadpix\b, \bflatfield\b, \bbiasremove\b, \bphotometry\b, \bpolgroup\b, \bpolarimetry\b]:[dstep]
+[v:verbose?Level of messages to be displayed in console. If not set, only main messages are displayed]#[vlevel]
 \nfiles detination directory1 directory2 directory3...\n
 [+PROCESSING STEPS]{
   [+Bad pixel correction?]
@@ -86,6 +90,9 @@ do
     d)  dstep="$dstep $OPTARG"
         mflag=1
         transferopt="$transferopt -d";;
+    v) vlevel=$OPTARG;;
+    c) cstep=$OPTARG;;
+    x) xstep=$OPTARG;;
   esac
 done
 inputs=$@
@@ -97,6 +104,13 @@ if [ $# -lt 1 ]; then
   exit 1
 fi
 
+if [ ! -z "$cstep" ]; then
+  echo "$cstep"
+  xstep="$cstep"
+  estep="$cstep"
+  istep="$cstep"
+  flagstep="$cstep"
+fi
 
 ###############################################################################
 ###############################################################################
@@ -108,10 +122,12 @@ fi
 # Copy the data from the previous step and clear the step.* files
 # and other defined in cleanskip
 cpstep(){
+  if [ "$vlevel" -gt 2 ]; then
   echo "Current directory: $(pwd)"
   echo "mkdir -p $objdir/$next/$hwp"
+  fi
   mkdir -p $objdir/$next/$hwp
-  echo "cp -r $objdir/$previous/$hwp/* $objdir/$next/$hwp"
+  if [ "$vlevel" -gt 2 ]; then echo "cp -r $objdir/$previous/$hwp/* $objdir/$next/$hwp"; fi
   cp -r $objdir/$previous/$hwp/* $objdir/$next/$hwp
   if [ ! -z "$cleanskip" ]; then rm $(find $objdir/$next/$hwp -name $cleanskip); fi
   if [ ! -z "$(ls $objdir/$next/$hwp/step.*)" ]; then rm $objdir/$next/step.*; fi
@@ -125,15 +141,19 @@ dostep(){
   
   if [ ! -z "$obj" ]; then
     if [ -z "$(echo "$obj" |grep -i $object)" ]; then
-      echo "Object $object skipped per user request."
-      echo "     ... requested objects are $obj"
+      if [ "$vlevel" -gt 2 ]; then
+        echo "Object $object skipped per user request."
+        echo "     ... requested objects are $obj"
+      fi
       return
     fi
   fi
   if [ ! -z "$filt" ]; then
     if [ -z "$(echo "$filt" |grep -i $filter)" ]; then
-      echo "Filter $filter skipped per user request."
-      echo "     ... requested objects are $filt"
+      if [ "$vlevel" -gt 2 ]; then
+        echo "Filter $filter skipped per user request."
+        echo "     ... requested objects are $filt"
+      fi
       return
     fi
   fi
@@ -141,9 +161,11 @@ dostep(){
   objdir=$destination/$ray/$filter/$object
   
   if [[ -d "$objdir/$next/$hwp"  && -z "$(echo "$fstep" | grep -i $next)" ]]; then
-    echo "$next of $ray ray already exist for $object, $filter and $hwp"
-    echo "$fstep"
-    echo "Using same directory with current products"
+    if [ "$vlevel" -gt 2 ]; then
+      echo "$next of $ray ray already exist for $object, $filter and $hwp"
+      echo "$fstep"
+      echo "Using same directory with current products"
+    fi
   else
     # Remove the directory if it exist.
     # At this stage, we know that if exists, we forced it to be redone
@@ -153,13 +175,13 @@ dostep(){
     # or we have to create the new products and move them to the right place
     if [ ! -z "$(echo "$sstep" |grep -i $next)" ]; then
       # for the skipping option
-      echo "Skipping $next step for $object, $filter and $hwp..."
+      if [ "$vlevel" -gt 2 ]; then echo "Skipping $next step for $object, $filter and $hwp..."; fi
       cpstep
       touch $objdir/$next/$hwp/step.skip
     else
       # for the processing option, we have two cases: it worked, or it didn't
       # In the second case we copy the data from the previous step and mark it as step.failed
-      echo "Performing $next step of $object and $filter"
+      if [ "$vlevel" -gt 2 ]; then echo "Performing $next step of $object and $filter"; fi
       $pipeline $curopts $objdir/$previous/$hwp
       
       # Now move the created products to the correct place in the directory structure
@@ -200,7 +222,7 @@ allsteps(){
     filter=$(basename $(dirname $(dirname $(dirname $dir))))
     ray=$(basename $(dirname $(dirname $(dirname $(dirname $dir)))))
     
-    echo "Performing step for $hwp, $object, $filter and $ray"
+    if [ "$vlevel" -gt 1 ]; then echo "Performing step for $hwp, $object, $filter and $ray"; fi
     dostep
   done
   
@@ -266,8 +288,9 @@ fi
 
 destination=$1
 
+validstep="group badpix biasremove flatfield photometry polgroup polarimetry instpol serkowski"
 if [ ! -z "$estep" ]; then
-    validstep="group badpix biasremove flatfield photometry polgroup polarimetry"
+    
     if [ -z $(echo $validstep |grep $estep) ]; then
         echo "The step $estep does not exist"
         echo "Select one of the following or don't use -e option"
@@ -281,31 +304,34 @@ fi
 if [ ! -z "$flagstep" ]; then
   case "$flagstep"
   in
-    badpix) fstep="badpix biasremove flatfield photometry grouphot polarimetry serkowski"
+    badpix) fstep="badpix biasremove flatfield photometry polgroup polarimetry serkowski"
             fflatfield=1
             fphotometry=1
             fgroupphot=1
             fpolarimetry=1
             fserkowski=1;;
-    biasremove)   fstep="biasremove flatfield photometry grouphot polarimetry serkowski"
+    biasremove)   fstep="biasremove flatfield photometry polgroup polarimetry serkowski"
                   fflatfield=1
                   fphotometry=1
                   fgroupphot=1
                   fpolarimetry=1
                   fserkowski=1;;
-    flatfield)  fstep="flatfield photometry grouphot polarimetry serkowski"
+    flatfield)  fstep="flatfield photometry polgroup polarimetry serkowski"
                 fflatfield=1
                 fphotometry=1
                 fgroupphot=1
                 fpolarimetry=1
                 fserkowski=1;;
-    photometry) fstep="photometry grouphot polarimetry serkowski"
+    photometry) fstep="photometry polgroup polarimetry serkowski"
                 fphotometry=1
                 fgroupphot=1
                 fpolarimetry=1
                 fserkowski=1;;
-    groupphot)  fstep="grouphot polarimetry serkowski"
+    polgroup)   fstep="polgroup polarimetry serkowski"
                 fgroupphot=1
+                fpolarimetry=1
+                fserkowski=1;;
+    instpol)    fstep="polarimetry serkowski"
                 fpolarimetry=1
                 fserkowski=1;;
     polarimetry)    fstep="polarimetry serkowski"
@@ -313,6 +339,31 @@ if [ ! -z "$flagstep" ]; then
                     fserkowski=1;;
     serkowski)  fstep="serkowski"
                 fserkowski=1;;
+    *)  echo "The step $flagstep does not exist"
+        echo "Select one of the following or don't use -f option"
+        echo "      $validstep"
+        echo "Aborting"
+        exit 1;;
+  esac
+fi
+
+start=1
+if [ ! -z "$xstep" ]; then
+  case "$xstep"
+  in
+    badpix)       start=1;;
+    biasremove)   start=2;;
+    flatfield)    start=3;;
+    photometry)   start=4;;
+    polgroup)     start=5;;
+    polarimetry)  start=6;;
+    instpol)      start=7;;
+    serkowski)    start=8;;
+    *) echo "Starting option $xstep is not found"
+       echo "Select one of the following or don't use -x option"
+       echo "      $validstep"
+       echo "Aborting"
+       exit 1;;
   esac
 fi
 
@@ -385,8 +436,6 @@ next=raw
 ###############################################################################
 ###############################################################################
 
-# this is just used for thesting purposes only of the instpol part
-if [ 1 -eq 1 ]; then 
 #####################
 #  REMOVE BAD PIXELS
 #####################
@@ -395,30 +444,37 @@ echo ":::::::: BAD PIXEL REMOVAL    :::::::"
 echo ":::::::::::::::::::::::::::::::::::::"
 previous=$next
 next=badpix
-pipeline=dobadpix
-if [[ ! -z "$obpfile" && -f "$obpfile" ]]; then
-  curopts="-b $obpfile"
-else
-  if [[ "$obpfile" == "bias" ]]; then
-    curopts="$darkord"
-  else
-    curopts=""
-  fi
-fi
-curopts="-ra $curopts"
-allsteps $hwpord
-if [[ ! -z "$ebpfile" && -f "$ebpfile" ]]; then
-  curopts="-b $ebpfile"
-else
-  if [[ "$ebpfile" == "bias" ]]; then
-    curopts="$darkext"
-  else
-    curopts=""
-  fi
-fi
-curopts="-ra $curopts"
-allsteps $hwpext
   
+# this is to start the process at a specific step
+if [ "$start" -le 1 ]; then 
+  pipeline=dobadpix
+  if [[ ! -z "$obpfile" && -f "$obpfile" ]]; then
+    curopts="-b $obpfile"
+  else
+    if [[ "$obpfile" == "bias" ]]; then
+      curopts="$darkord"
+    else
+      curopts=""
+    fi
+  fi
+  curopts="-ra $curopts"
+  allsteps $hwpord
+  if [[ ! -z "$ebpfile" && -f "$ebpfile" ]]; then
+    curopts="-b $ebpfile"
+  else
+    if [[ "$ebpfile" == "bias" ]]; then
+      curopts="$darkext"
+    else
+      curopts=""
+    fi
+  fi
+  curopts="-ra $curopts"
+  allsteps $hwpext
+    
+else
+  echo "Skipped Bad Pixel correction"
+fi
+
 if [ ! -z $(echo "badpix" |grep $estep) ];then
     echo "Pipeline stopped at $estep per user request"
     exit 0
@@ -427,23 +483,28 @@ fi
 ###############
 #  REMOVE BIAS
 ###############
+# this is to start the process at a specific step
 echo ":::::::::::::::::::::::::::::::::::::"
 echo ":::::::::: BIAS REMOVAL    ::::::::::"
 echo ":::::::::::::::::::::::::::::::::::::"
 previous=$next
 next=biasremove
-pipeline=dodark
-curopts="-ra $darkord"
-allsteps $hwpord
-curopts="-ra $darkext"
-allsteps $hwpext
+  
+if [ "$start" -le 2 ]; then 
+  pipeline=dodark
+  curopts="-ra $darkord"
+  allsteps $hwpord
+  curopts="-ra $darkext"
+  allsteps $hwpext
+else
+  echo "Skipped Bias removal"
+fi
 
 if [ ! -z $(echo "biasremove" |grep $estep) ];then
     echo "Pipeline stopped at $estep per user request"
     exit 0
 fi
-
-    
+  
 ###############
 #  REMOVE FLAT
 ###############
@@ -453,98 +514,114 @@ echo "::::::::::::::::::::::::::::::::::::::::::"
 
 previous=$next
 next=flatfield
-
-curopts="-e 1.0"
-if [ ! -z "$(echo "$dstep" |grep -i flatfield)" ]; then
-  curopts="$curopts -d"
-fi
-if [ ! -z "$(echo "$istep" |grep -i flatfield)" ]; then
-  curopts="$curopts -i"
-fi
-
-dostepflat(){
-  for object in $curobjectray
-  do
-    dothisobj=1
-    if [ ! -z "$obj" ]; then
-      if [ -z "$(echo "$obj" |grep -i $(basename $object))" ]; then
-        echo "Object $(basename $object) skipped per user request."
-        echo "     ... requested objects are $obj"
-        dothisobj=0
-      fi
-    fi
-    if [ $dothisobj -eq 1 ]; then
-      if [[ -d "$object/$next"  && -z "$fflatfield" ]]; then
-          echo "Flat field correction of ray already exist at $object."
-          echo "Using same directory with current products."
-      else
-        if [ -d "$object/$next" ]; then rm -r $object/$next; fi
-        if [ ! -z "$(echo "$sstep" |grep -i flat)" ]; then
-          echo "Skipping flatfield correction step for $object..."
-          mkdir -p $object/$next
-          cp -r $object/$previous/* $object/$next
-          if [ ! -z "$(ls $object/$next/step.*)" ]; then rm $object/$next/step.*; fi
-          touch $object/$next/step.skip
-        else
-          # Check the filter of the object. I know, it is not the most optimal
-          # but the quickest fix
-          filtobj=$(dirname $object)
-          filter=$(basename $filtobj)
-          dothisfilter=1
-          
-          if [ ! -z "$filt" ]; then
-            if [ -z "$(echo "$filt" |grep -i $filter)" ]; then
-              echo "Filter $filter skipped per user request."
-              echo "     ... requested objects are $filt"
-              dothisfilter=0
-            fi
+  
+# this is to start the process at a specific step
+if [ "$start" -le 3 ]; then 
+  curopts="-e 1.0"
+  if [ ! -z "$(echo "$dstep" |grep -i flatfield)" ]; then
+    curopts="$curopts -d"
+  fi
+  if [ ! -z "$(echo "$istep" |grep -i flatfield)" ]; then
+    curopts="$curopts -i"
+  fi
+  
+  dostepflat(){
+    for object in $curobjectray
+    do
+      dothisobj=1
+      if [ ! -z "$obj" ]; then
+        if [ -z "$(echo "$obj" |grep -i $(basename $object))" ]; then
+          if [ "$vlevel" -gt 2 ]; then 
+            echo "Object $(basename $object) skipped per user request."
+            echo "     ... requested objects are $obj"
           fi
-          
-          if [ $dothisfilter -eq 1 ]; then
-            if [ -d "$filtobj/flat" ]; then 
-                # Check the hwp for the object and find the flat for that hwp
-                hwpobjlist=$(basename $(ls -d $object/$previous/* | grep -v "step."))
-                for hwpobj in $hwpobjlist
-                do
-                  if [ -d "$filtobj/flat/raw/$hwpobj" ]; then
-                      echo "Flatfield correction of data at $object/$hwpobj"
-                      echo "doflat $curopts -ra $object/$previous/$hwpobj $filtobj/flat/raw/$hwpobj"
-                      doflat $curopts -ra "$object/$previous/$hwpobj" "$filtobj/flat/raw/$hwpobj"
-                  else
-                      echo "No flat for filter $(basename $filtobj) and hwp $hwpobj"
-                  fi
-                done
-            else
-                echo "No flat for filter $(basename $filtobj)"
+          dothisobj=0
+        fi
+      fi
+      if [ $dothisobj -eq 1 ]; then
+        if [[ -d "$object/$next"  && -z "$fflatfield" ]]; then
+            if [ "$vlevel" -gt 2 ]; then 
+              echo "Flat field correction of ray already exist at $object."
+              echo "Using same directory with current products."
+            fi
+        else
+          if [ -d "$object/$next" ]; then rm -r $object/$next; fi
+          if [ ! -z "$(echo "$sstep" |grep -i flat)" ]; then
+            if [ "$vlevel" -gt 2 ]; then echo "Skipping flatfield correction step for $object..."; fi
+            mkdir -p $object/$next
+            cp -r $object/$previous/* $object/$next
+            if [ ! -z "$(ls $object/$next/step.*)" ]; then rm $object/$next/step.*; fi
+            touch $object/$next/step.skip
+          else
+            # Check the filter of the object. I know, it is not the most optimal
+            # but the quickest fix
+            filtobj=$(dirname $object)
+            filter=$(basename $filtobj)
+            dothisfilter=1
+            
+            if [ ! -z "$filt" ]; then
+              if [ -z "$(echo "$filt" |grep -i $filter)" ]; then
+                if [ "$vlevel" -gt 2 ]; then 
+                  echo "Filter $filter skipped per user request."
+                  echo "     ... requested objects are $filt"
+                fi
+                dothisfilter=0
+              fi
+            fi
+            
+            if [ $dothisfilter -eq 1 ]; then
+              if [ -d "$filtobj/flat" ]; then 
+                  # Check the hwp for the object and find the flat for that hwp
+                  hwpobjlist=$(basename $(ls -d $object/$previous/* | grep -v "step."))
+                  for hwpobj in $hwpobjlist
+                  do
+                    if [ -d "$filtobj/flat/raw/$hwpobj" ]; then
+                        if [ "$vlevel" -gt 2 ]; then 
+                          echo "Flatfield correction of data at $object/$hwpobj"
+                          echo "doflat $curopts -ra $object/$previous/$hwpobj $filtobj/flat/raw/$hwpobj"
+                        fi
+                        doflat $curopts -ra "$object/$previous/$hwpobj" "$filtobj/flat/raw/$hwpobj"
+                    else
+                        echo "No flat for filter $(basename $filtobj) and hwp $hwpobj"
+                    fi
+                  done
+              else
+                  echo "No flat for filter $(basename $filtobj)"
+              fi
             fi
           fi
         fi
       fi
-    fi
-  done
-  
-  # Order the directory structure
-  if [ -z "$(echo "$sstep" |grep -i flat)" ]; then
-    echo "Moving directories..."
-    for filter in $curfilterray
-    do
-        echo "    .... filter $filter"
-        endstep $filter $previous $next
     done
-  fi
-
-}
-
-# Ordinary ray
-curobjectray=$objord
-curfilterray=$filterord
-dostepflat
-
-# Extraordinary ray
-curobjectray=$objext
-curfilterray=$filterext
-dostepflat
-
+    
+    # Order the directory structure
+    if [ -z "$(echo "$sstep" |grep -i flat)" ]; then
+      if [ "$vlevel" -gt 1 ]; then echo "Moving directories..."; fi
+      for filter in $curfilterray
+      do
+          if [ "$vlevel" -gt 2 ]; then
+            echo "    .... filter $filter"
+            endstep -v $filter $previous $next
+          else
+            endstep $filter $previous $next
+          fi
+      done
+    fi
+  
+  }
+  
+  # Ordinary ray
+  curobjectray=$objord
+  curfilterray=$filterord
+  dostepflat
+  
+  # Extraordinary ray
+  curobjectray=$objext
+  curfilterray=$filterext
+  dostepflat
+else
+  echo "Skipped flat field correction"
+fi
 
 if [ ! -z $(echo "flatfield" |grep $estep) ];then
     echo "Pipeline stopped at $estep per user request"
@@ -557,39 +634,79 @@ fi
 previous=$next
 next=photometry
 
-dostepphot(){
-  for object in $curobjectray
-  do
-      if [[ -d "$object/$next"  && -z "$fphotometry" ]]; then
-          echo "Photometry of ray already exist at $object."
-          echo "Doing photometry in same directory with current star positions."
-          # Modify dophot to stay in same directory
-          # domlofphot -r "$object/$next" with option same directory
-      else
-          echo "Measure photometry of data at $object"
-          if [ -z "$(echo "$istep" |grep -i phot)" ]; then
-            domlofphot $track -q BAD -r "$object/$previous"
-          else
-            domlofphot $track -q BAD -ir "$object/$previous"
+echo ":::::::::::::::::::::::::::::::::::::"
+echo ":::::::::: PHOTOMETRY    ::::::::::::"
+echo ":::::::::::::::::::::::::::::::::::::"
+# this is to start the process at a specific step
+if [ "$start" -le 4 ]; then 
+  dostepphot(){
+    for object in $curobjectray
+    do
+        if [[ -d "$object/$next"  && -z "$fphotometry" ]]; then
+            if [ "$vlevel" -gt 2 ]; then
+              echo "Photometry of ray already exist at $object."
+              echo "Doing photometry in same directory with current star positions."
+            fi
+            # Modify dophot to stay in same directory
+            # domlofphot -r "$object/$next" with option same directory
+        else
+          if [ "$vlevel" -gt 2 ]; then echo "Measure photometry of data at $object"; fi
+          
+          curobj=$(basename $object)
+          curfilt=$(basename $(dirname $object))
+          dothisobj=1
+          
+          if [ ! -z "$obj" ]; then
+            if [ -z "$(echo "$obj" |grep -i $curobj)" ]; then
+              if [ "$vlevel" -gt 2 ]; then 
+                echo "Object $curobj skipped per user request."
+                echo "     ... requested objects are $obj"
+              fi
+              dothisobj=0
+            fi
+          fi  
+          
+          if [ ! -z "$filt" ]; then
+            if [ -z "$(echo "$filt" |grep -i $curfilt)" ]; then
+              if [ "$vlevel" -gt 2 ]; then 
+                echo "Filter $curfilt skipped per user request."
+                echo "     ... requested objects are $filt"
+              fi
+              dothisobj=0
+            fi
+          fi  
+          if [ $dothisobj -eq 1 ]; then
+            if [ -z "$(echo "$istep" |grep -i photometry)" ]; then
+              domlofphot $track -q BAD -r "$object/$previous"
+            else
+              domlofphot $track -q BAD -ir "$object/$previous"
+            fi
           fi
-      fi
-  done
-  for filter in $curfilterray
-  do
-      endstep $filter $previous $next
-  done
-}
-
-# Ordinary ray
-curobjectray=$objord
-curfilterray=$filterord
-dostepflat
-
-# Extraordinary ray
-curobjectray=$objext
-curfilterray=$filterext
-dostepflat
-
+        fi
+    done
+    
+    for filter in $curfilterray
+    do
+      if [ "$vlevel" -gt 2 ]; then
+          endstep -vx $filter $previous $next
+        else
+          endstep -x $filter $previous $next
+        fi
+    done
+  }
+  
+  # Ordinary ray
+  curobjectray=$objord
+  curfilterray=$filterord
+  dostepphot
+  
+  # Extraordinary ray
+  curobjectray=$objext
+  curfilterray=$filterext
+  dostepphot
+else
+  echo "Skipped photometry"
+fi
 
 if [ ! -z $(echo "photometry" |grep $estep) ];then
     echo "Pipeline stopped at $estep per user request"
@@ -633,39 +750,82 @@ fi
 previous=$next
 next=polarimetry
 
+echo ":::::::::::::::::::::::::::::::::::::"
+echo ":::::::: GROUP PHOTOMETRY :::::::::::"
+echo ":::::::::::::::::::::::::::::::::::::"
 # Create a new directory for staging the new tree
 destpol=$destination/polarimetry
 
-raylist="ordinary extraordinary"
-for ray in $raylist
-do
-    photlistord=$(ls -d $destination/$ray/*/*/$previous/* |grep -v "step.")
-    
-    for photord in $photlistord
-    do
-        hwp=$(basename $photord)
-        object=$(basename $(dirname $(dirname $photord)))
-        filter=$(basename $(dirname $(dirname $(dirname $photord))))
-        echo "Copying $previous object=$object, filter=$filter, hwp=$hwp for $ray ray"
-        tmpdestpol="$destpol/$object/$filter/$previous/$hwp/$ray"
-        if [ -d "$tmpdestpol" ]; then
-            echo "Skipping because data already exist in destination"
-        else
-            if [ "$(ls -A $photord)" ]; then
-                mkdir -p $tmpdestpol
-                cp -r $photord/* $tmpdestpol
-                echo "   $photord/* >>>> $tmpdestpol"
-            else
-                echo "Origin does not contain data: $photord"
+# this is to start the process at a specific step
+if [ "$start" -le 5 ]; then 
+  raylist="ordinary extraordinary"
+  for ray in $raylist
+  do
+      photlistord=$(ls -d $destination/$ray/*/*/$previous/* |grep -v "step.")
+      
+      for photord in $photlistord
+      do
+          hwp=$(basename $photord)
+          object=$(basename $(dirname $(dirname $photord)))
+          filter=$(basename $(dirname $(dirname $(dirname $photord))))
+                    
+          dothisobj=1
+          if [ ! -z "$obj" ]; then
+            if [ -z "$(echo "$obj" |grep -i $object)" ]; then
+              if [ "$vlevel" -gt 2 ]; then
+                echo "Object $object skipped per user request."
+                echo "     ... requested objects are $obj"
+              fi
+              dothisobj=0
             fi
-        fi
-    done
-done
+          fi
+          if [ ! -z "$filt" ]; then
+            if [ -z "$(echo "$filt" |grep -i $filter)" ]; then
+              if [ "$vlevel" -gt 2 ]; then
+                echo "Filter $filter skipped per user request."
+                echo "     ... requested objects are $filt"
+              fi
+              dothisobj=0
+            fi
+          fi
+          
+          if [ $dothisobj -eq 1 ]; then
+            if [ ! -z "$(ls $(dirname $photord)/step.success)" ]; then 
+              if [ "$vlevel" -gt 2 ]; then echo "Copying $previous object=$object, filter=$filter, hwp=$hwp for $ray ray"; fi
+              tmpdestpol="$destpol/$object/$filter/$previous/$hwp/$ray"
+              if [ -d "$tmpdestpol" ]; then
+                  if [ "$vlevel" -gt 2 ]; then echo "Skipping because data already exist in destination"; fi
+              else
+                  if [ "$(ls -A $photord)" ]; then
+                      if [ "$vlevel" -gt 2 ]; then
+                        echo "mkdir -p $tmpdestpol"
+                        echo "cp -r $photord/* $tmpdestpol"
+                      fi
+                      mkdir -p $tmpdestpol
+                      cp -r $photord/* $tmpdestpol
+                      echo "   $photord/* >>>> $tmpdestpol"
+                  else
+                      echo "Origin does not contain data: $photord"
+                  fi
+              fi
+            else
+              if [ "$vlevel" -gt 2 ]; then 
+                echo "Previous values for object=$object, filter=$filter, hwp=$hwp and ray=$ray did not succedded"
+                echo "    skipping grouping for this configuration"
+              fi
+            fi
+          fi
+      done
+  done
+else
+  echo "Skipped grouping photometry"
+fi
 
 if [ ! -z $(echo "polgroup" |grep $estep) ];then
     echo "Pipeline stopped at $estep per user request"
     exit 0
 fi
+
 
 ###############################################################################
 ###############################################################################
@@ -676,69 +836,77 @@ echo ""
 echo $destpol
 echo "...."
 
+echo ":::::::::::::::::::::::::::::::::::::"
+echo ":::::::::: POLARIMETRY   ::::::::::::"
+echo ":::::::::::::::::::::::::::::::::::::"
 
-curopts=""
-if [ ! -z "$(echo "$dstep" |grep -i pol)" ]; then
-  curopts="$curopts -d"
-fi
-if [ ! -z "$(echo "$istep" |grep -i pol)" ]; then
-  curopts="$curopts -i"
-fi
-
-for phot in $photlist
-do
-  
-  dothiphotlist=1
-  object=$(basename $(dirname $(dirname $phot)))
-  filter=$(basename $(dirname $phot))
-  if [ ! -z "$obj" ]; then
-    if [ -z "$(echo "$obj" |grep -i $object)" ]; then
-      echo "Object $object skipped per user request."
-      echo "     ... requested objects are $obj"
-      dothiphotlist=0
-    fi
+# this is to start the process at a specific step
+if [ "$start" -le 6 ]; then 
+  curopts=""
+  if [ ! -z "$(echo "$dstep" |grep -i polarimetry)" ]; then
+    curopts="$curopts -d"
   fi
-  if [ ! -z "$filt" ]; then
-    if [ -z "$(echo "$filt" |grep -i $filter)" ]; then
-      echo "Filter $filter skipped per user request."
-      echo "     ... requested objects are $filt"
-      dothiphotlist=0
-    fi
+  if [ ! -z "$(echo "$istep" |grep -i polarimetry)" ]; then
+    curopts="$curopts -i"
   fi
   
-  if [ $dothiphotlist -eq 1 ]; then
-    if [[ -d "$(dirname $phot)/polarimetry"  && -z "$fpolarimetry" ]]; then
-      echo "Polarimetry of $object already exist for $filter filter."
-    else
-      echo "Measure polarimetry from $previous of data at $phot"
-      if [ -d "$(dirname $phot)/polarimetry" ]; then rm -r $(dirname $phot)/polarimetry; fi
-      dopol $curopts -r "$phot"
-        
-      list2bemoved=$(find $phot -name polarimetry)
-      if [ ! -z "$list2bemoved" ]; then
-        for cdir in $list2bemoved
-        do
-          mv $cdir $(dirname $phot)
-          if [ ! -z "$(ls $(dirname $phot)/polarimetry/step.*)" ]; then rm $(dirname $phot)/polarimetry/step.*; fi
-          touch $(dirname $phot)/polarimetry/step.success
-        done
-      else
-        mkdir -p $(dirname $phot)/polarimetry
-        touch $(dirname $phot)/polarimetry/step.failed
+  for phot in $photlist
+  do
+    
+    dothiphotlist=1
+    object=$(basename $(dirname $(dirname $phot)))
+    filter=$(basename $(dirname $phot))
+    if [ ! -z "$obj" ]; then
+      if [ -z "$(echo "$obj" |grep -i $object)" ]; then
+        if [ "$vlevel" -gt 2 ]; then
+          echo "Object $object skipped per user request."
+          echo "     ... requested objects are $obj"
+        fi
+        dothiphotlist=0
       fi
     fi
-  fi
-done
+    if [ ! -z "$filt" ]; then
+      if [ -z "$(echo "$filt" |grep -i $filter)" ]; then
+        if [ "$vlevel" -gt 2 ]; then
+          echo "Filter $filter skipped per user request."
+          echo "     ... requested objects are $filt"
+        fi
+        dothiphotlist=0
+      fi
+    fi
+    
+    if [ $dothiphotlist -eq 1 ]; then
+      if [[ -d "$(dirname $phot)/polarimetry"  && -z "$fpolarimetry" ]]; then
+        if [ "$vlevel" -gt 2 ]; then echo "Polarimetry of $object already exist for $filter filter."; fi
+      else
+        if [ "$vlevel" -gt 2 ]; then echo "Measure polarimetry from $previous of data at $phot"; fi
+        if [ -d "$(dirname $phot)/polarimetry" ]; then rm -r $(dirname $phot)/polarimetry; fi
+        dopol $curopts -r "$phot"
+          
+        list2bemoved=$(find $phot -name polarimetry)
+        if [ ! -z "$list2bemoved" ]; then
+          for cdir in $list2bemoved
+          do
+            mv $cdir $(dirname $phot)
+            if [ ! -z "$(ls $(dirname $phot)/polarimetry/step.*)" ]; then rm $(dirname $phot)/polarimetry/step.*; fi
+            touch $(dirname $phot)/polarimetry/step.success
+          done
+        else
+          mkdir -p $(dirname $phot)/polarimetry
+          touch $(dirname $phot)/polarimetry/step.failed
+        fi
+      fi
+    fi
+  done
+else
+  echo "Skipping polarimetry"
+fi
 
 if [ ! -z $(echo "polarimetry" |grep $estep) ];then
     echo "Pipeline stopped at $estep per user request"
     exit 0
 fi
 
-# this fi correspond to the end of the statement I did to test serkowski 1 -eq 2
-else
-  destpol=$destination/polarimetry
-fi
 
 
 ###############################################################################
@@ -746,36 +914,50 @@ fi
 # Instrumental polarization calibration
 pollist=$(ls -d $destpol/*)
 
-echo ""
-curopts=""
-if [ ! -z "$(echo "$dstep" |grep -i instpol)" ]; then
-  curopts="$curopts -d"
-fi
-if [ ! -z "$(echo "$istep" |grep -i instpol)" ]; then
-  curopts="$curopts -i"
-fi
+echo ":::::::::::::::::::::::::::::::::::::"
+echo "::::: INSTRUMENTAL POLARIZATION :::::"
+echo ":::::::::::::::::::::::::::::::::::::"
 
-
-echo "doinstpol $curopts -ra $(ls -d $destpol/*/b/polarimetry)"
-doinstpol $curopts -ra $(ls -d $destpol/*/b/polarimetry)
-echo "doinstpol $curopts -ra $(ls -d $destpol/*/v/polarimetry)"
-doinstpol $curopts -ra $(ls -d $destpol/*/v/polarimetry)
-echo "doinstpol $curopts -ra $(ls -d $destpol/*/r/polarimetry)"
-doinstpol $curopts -ra $(ls -d $destpol/*/r/polarimetry)
-echo "doinstpol $curopts -ra $(ls -d $destpol/*/i/polarimetry)"
-doinstpol $curopts -ra $(ls -d $destpol/*/i/polarimetry)
-
-echo ""
-echo ""
-for pol in $pollist
-do  
-  mvdirs=$(ls -d $pol/*/polarimetry/instpol)
-  for ip in $mvdirs
-  do
-    echo "mv $ip $(dirname $(dirname $ip))"
-    mv $ip $(dirname $(dirname $ip))
+# this is to start the process at a specific step
+if [ "$start" -le 7 ]; then 
+  echo ""
+  curopts=""
+  if [ ! -z "$(echo "$dstep" |grep -i instpol)" ]; then
+    curopts="$curopts -d"
+  fi
+  if [ ! -z "$(echo "$istep" |grep -i instpol)" ]; then
+    curopts="$curopts -i"
+  fi
+  
+  
+  if [ "$vlevel" -gt 0 ]; then echo "doinstpol $curopts -ra $(ls -d $destpol/*/b/polarimetry)"; fi
+  doinstpol $curopts -ra $(ls -d $destpol/*/b/polarimetry)
+  if [ "$vlevel" -gt 0 ]; then echo "doinstpol $curopts -ra $(ls -d $destpol/*/v/polarimetry)"; fi
+  doinstpol $curopts -ra $(ls -d $destpol/*/v/polarimetry)
+  if [ "$vlevel" -gt 0 ]; then echo "doinstpol $curopts -ra $(ls -d $destpol/*/r/polarimetry)"; fi
+  doinstpol $curopts -ra $(ls -d $destpol/*/r/polarimetry)
+  if [ "$vlevel" -gt 0 ]; then echo "doinstpol $curopts -ra $(ls -d $destpol/*/i/polarimetry)"; fi
+  doinstpol $curopts -ra $(ls -d $destpol/*/i/polarimetry)
+  
+  echo ""
+  echo ""
+  for pol in $pollist
+  do  
+    mvdirs=$(ls -d $pol/*/polarimetry/instpol)
+    for ip in $mvdirs
+    do
+      if [ "$vlevel" -gt 2 ]; then echo "mv $ip $(dirname $(dirname $ip))"; fi
+      mv $ip $(dirname $(dirname $ip))
+    done
   done
-done
+else
+  echo "Skipping instrumental polarization correction"
+fi
+
+if [ ! -z $(echo "instpol" |grep $estep) ];then
+    echo "Pipeline stopped at $estep per user request"
+    exit 0
+fi
 
 ###############################################################################
 ###############################################################################
@@ -784,6 +966,9 @@ done
 pollist=$(ls -d $destpol/*)
 
 echo ""
+echo ":::::::::::::::::::::::::::::::::::::"
+echo ":::::::::: SERKOWSKI FIT   ::::::::::"
+echo ":::::::::::::::::::::::::::::::::::::"
 curopts=""
 if [ ! -z "$(echo "$dstep" |grep -i serkowski)" ]; then
   curopts="$curopts -d"
@@ -795,15 +980,18 @@ fi
 for pol in $pollist
 do
   if [[ -d "$pol/serkowski"  && -z "$fserkowski" ]]; then
-    echo "Serkowski law of $(basename $pol) already exists"
+    if [ "$vlevel" -gt 2 ]; then echo "Serkowski law of $(basename $pol) already exists"; fi
   else
-    echo "Measuring Serkowski law for $pol"
+    if [ "$vlevel" -gt 2 ]; then
+      echo "Measuring Serkowski law for $pol"
+      echo "doserkowski $curopts -ra $(find $pol -name instpol)"
+    fi
     doserkowski $curopts -ra $(find $pol -name instpol)
     list2bemoved=$(find $pol -name serkowski)
     if [ ! -z "$list2bemoved" ]; then
       for cdir in $list2bemoved
       do
-        if [[ "$cdir" != "$pol/serkowski" ]]; then 
+        if [[ "$cdir" != "${pol}/serkowski" ]]; then 
           mv $cdir $pol
           touch $pol/serkowski/step.success
         fi

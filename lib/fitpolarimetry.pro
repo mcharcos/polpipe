@@ -20,11 +20,11 @@ FUNCTION FitPolarimetry, hwp, qu, dqu=dqu
   endif
   
   print,'MPFITFUN status is '+strtrim(auxstatus,2)
-  kstat = where([1,2,3,4] eq auxstatus)
+  kstat = where([1,2,3,4,5,6,7] eq auxstatus)
   if kstat[0] eq -1 then begin
     print, 'No solution found fitting the current data points'
     print,auxerrmsg
-    ;return,{fit:Areturn,error:Aerror,status:auxstatus,errmsg:auxerrmsg}
+    return,{fit:Areturn,error:Aerror,status:auxstatus,errmsg:auxerrmsg}
   endif 
   
   Aerror = perror * sqrt(auxbnorm/auxdof)

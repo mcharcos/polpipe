@@ -50,7 +50,7 @@ done
 shift $(( OPTIND-1 ))
 
 if [ $# -lt 1 ]; then
-  echo "Usage: dophot [options] directory1 directory2 ..."
+  echo "Usage: doserkowski [options] directory1 directory2 ..."
   exit 1
 fi
 

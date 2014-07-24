@@ -130,17 +130,17 @@ FUNCTION runinstrumentalpol::unpolcorrection, header
   ustd = (*self.nopolstd)[0].pol * sin(2.*(*self.nopolstd)[0].pol/180*!pi)
   
   ; presumably, there should be observed in the same frame
-  qcorr = q - qstd
-  ucorr = u - ustd
+  qcorr = qstd
+  ucorr = ustd
   
   ; Now write the new values to the output header
   ; TODO: add the error measurements
   polcorr = sqrt(qcorr^2 + ucorr^2)
   polangcorr = 0.5 * atan(ucorr/qcorr)
   sxaddpar,hout,'UCPLEV0',polcorr
-  sxaddpar,hout,'UCEPLEV0',epollev
+  sxaddpar,hout,'UCEPLEV0',0
   sxaddpar,hout,'UCPANG0',polangcorr
-  sxaddpar,hout,'UCEPANG0',epolang
+  sxaddpar,hout,'UCEPANG0',0
   
   ; TODO: May be later add the information of the specific standards used for the calibration
   
@@ -259,7 +259,8 @@ FUNCTION runinstrumentalpol::init, nopolstd=nopolstd, polstd=polstd, _Extra=extr
                                 {name:'hd202573', p:0.0, xi:0.0}, $
                                 {name:'hd202940', p:0.0, xi:0.0}, $
                                 {name:'hd210027', p:0.0, xi:0.0}, $
-                                {name:'hd216956', p:0.0, xi:0.0}])
+                                {name:'hd216956', p:0.0, xi:0.0}, $
+                                {name:'zetapeg', p:0.0, xi:0.0}])
   if keyword_set(nopolstd) then *self.nopolstdlist = [*self.nopolstdlist,nopolstd]
   
   ; We initialize the arrays with the reference one

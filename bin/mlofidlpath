@@ -15,7 +15,7 @@ do
 done
 
 # Set the variables
-rootdir='/Users/mcharcos/Documents/Science/mlof_pipe'
+rootdir='/Users/mcharcos/Documents/Science/polpipe'
 idldir='+/Users/mcharcos/idl/common/astron:+/Users/mcharcos/idl/common/coyote:'
 
 # Check if the directory with the code exists and exit if not

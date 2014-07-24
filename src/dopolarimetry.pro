@@ -26,7 +26,7 @@
 ; MODIFICATION HISTORY:
 ;     Written by:  Miguel Charcos (mcharcos@sofia.usra.edu), USRA, October 15th 2013
 
-PRO DoPolarimetry, indata, recursive=recursive, keyword=keyword, keypath=keypath, dataqual=dataqual, interactive=interactive, product=product
+PRO DoPolarimetry, indata, recursive=recursive, keyword=keyword, keypath=keypath, dataqual=dataqual, interactive=interactive, product=product, overwrite=overwrite
   
   if not keyword_set(dataqual) then dataqual='SUPERCALIFRAGILISTICO'
   if keyword_set(product) then objclass='SUPERCALIFRAGILISTICO' else objclass='RUNPOLARIMETRY'
@@ -49,6 +49,9 @@ PRO DoPolarimetry, indata, recursive=recursive, keyword=keyword, keypath=keypath
     endfor
   endelse
   
-  object->Run,prodfolder='polarimetry'
-  
+  if keyword_set(overwrite) then begin
+    object->Run,prodfolder=''
+  endif else begin
+    object->Run,prodfolder='polarimetry'
+  endelse
 END

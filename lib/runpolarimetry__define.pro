@@ -314,7 +314,7 @@ PRO runpolarimetry::AddProduct, fname, _EXTRA=extraKeywords
     ;endwhile
     
     curopath = self->SxLongStr(h, 'ST'+strtrim(countpl,2)+'PTO')
-    curopeth = self->SxLongStr(h, 'ST'+strtrim(countpl,2)+'PTE')
+    curepath = self->SxLongStr(h, 'ST'+strtrim(countpl,2)+'PTE')
     
     curfname=sxpar(h,'ST'+strtrim(countpl,2)+'FN')
     curopath=curopath+'/'
@@ -629,7 +629,7 @@ END
 ;****************************************************************************
 ;     RUN - start process
 ;****************************************************************************
-PRO runpolarimetry::run, _EXTRA=extraKeywords
+PRO runpolarimetry::run, skipphot=skipphot, _EXTRA=extraKeywords
   
   self->Message,['============ POLARIMETRY =============','Starting'],priority='DEBUG',method='RUN'
   
@@ -679,6 +679,7 @@ PRO runpolarimetry::run, _EXTRA=extraKeywords
     self.pollist = ptr_new()
   endif
   self->CompletePolStar
+  
   
   if self.interactive ne 0 then begin
     winnum=0
@@ -789,6 +790,14 @@ PRO runpolarimetry::run, _EXTRA=extraKeywords
     ; Write fits file with images/plane and header
     self->Message,'Writing file '+outfname,priority='DEBUG',method='RUN'
     writefits,outfname,im,hout
+    
+    ; Make a plot with the fit
+    pos = strpos(outfname, '.', /REVERSE_SEARCH)
+    if pos[0] eq -1 then begin
+      self->updatePlot, 0, badidx=(*self.photlist).bad, ps=outfname+'.ps'
+    endif else begin
+      self->updatePlot, 0, badidx=(*self.photlist).bad, ps=strmid(outfname,0,pos[0])+'.ps'
+    endelse
   endfor
   
   self->Message,'DONE SUCCESFULLY',priority='DEBUG',method='RUN'
@@ -841,7 +850,7 @@ END
 ;****************************************************************************
 ;     UPDATEPLOT - Update the data in the plotting area
 ;****************************************************************************
-PRO runpolarimetry::updatePlot, winnum, specialidx=specialidx, badidx=badidx, selregion=selregion, zoom=zoom
+PRO runpolarimetry::updatePlot, winnum, specialidx=specialidx, badidx=badidx, selregion=selregion, zoom=zoom, ps=ps
   
   self->Message,'Starting',priority='DEBUG',method='UPDATEPLOT'
   if n_elements(winnum) eq 0 then begin
@@ -871,8 +880,24 @@ PRO runpolarimetry::updatePlot, winnum, specialidx=specialidx, badidx=badidx, se
     return
   endif
     
-  wset,winnum
-  mkct,0
+  if keyword_set(ps) then begin
+    if strtrim(ps,2) eq '1' or not file_test(file_dirname(strtrim(ps,2)),/directory) then begin
+      sFile = DIALOG_PICKFILE(PATH=pollist.opath, TITLE='Select PS File to save the plot',  FILTER='*.ps')
+    endif else begin
+      sFile = ps
+    endelse
+    while file_test(sFile, /directory) do begin
+      self->Message,['This file does not exists: '+sFile,'Select a real file.'],priority='WARN',method='UPDATEPLOT'
+      sFile = DIALOG_PICKFILE(PATH=pollist.opath, TITLE='Select PS File to save the plot',  FILTER='*.ps')
+    endwhile
+    thisDevice = !D.Name
+    SET_PLOT, 'PS'	; Select the PostScript driver.
+    DEVICE, FILENAME = sFile, /COLOR, BITS=8
+  endif else begin
+    wset,winnum
+    mkct,0
+  endelse
+  
   plotnum = 0
   
   scaleP=100.
@@ -894,7 +919,7 @@ PRO runpolarimetry::updatePlot, winnum, specialidx=specialidx, badidx=badidx, se
       end
     1: begin  ; unzoom to initial values
         minhwp = 0.
-        maxhwp = 180.
+        maxhwp = 90.
         minP=min(photlist.qu,max=maxP)
         minP = minP*scaleP
         maxP = maxP*scaleP
@@ -904,6 +929,10 @@ PRO runpolarimetry::updatePlot, winnum, specialidx=specialidx, badidx=badidx, se
         minP=min([zoom[1],zoom[3]],max=maxP)
       end
     else: begin
+          if keyword_set(ps) then begin
+            DEVICE, /CLOSE
+            SET_PLOT, thisDevice
+          endif
           self->Message,'Wrong zoom value',priority='WARN', method='UPDATEPLOT'
           return
         end
@@ -937,6 +966,24 @@ PRO runpolarimetry::updatePlot, winnum, specialidx=specialidx, badidx=badidx, se
   endif
   
   if keyword_set(selregion) then plots, selregion,color=2, /DEVICE
+  
+  
+  ; Write the information of the object and serkowski fit
+  x0=minhwp+(maxhwp-minhwp)/30.
+  dy=(maxP-minP)/30.
+  y0=maxP-2.*dy
+  charsz=1.5
+  xystr=['Object: '+pollist.name, $
+         'P0: '+STRING(scaleP*pollist.P0,FORMAT='(F6.2)')+'% +/- '+STRING(scaleP*pollist.dP0,FORMAT='(F6.2)'), $
+         'P1: '+STRING(scaleP*pollist.P, FORMAT='(F6.2)')+'% +/- '+STRING(scaleP*pollist.dP,FORMAT='(F6.2)'), $
+         'Phase: '+STRING(pollist.Xi, FORMAT='(F6.2)')+'deg +/- '+STRING(pollist.dXi,FORMAT='(F6.2)')]
+  nxystr = n_elements(xystr)
+  xyouts,replicate(x0,nxystr),y0-indgen(nxystr)*dy*charsz,xystr, charsize=charsz
+  
+  if keyword_set(ps) then begin
+    DEVICE, /CLOSE
+    SET_PLOT, thisDevice
+  endif
   return
   
   
@@ -958,6 +1005,8 @@ PRO runpolarimetry::updatePlot, winnum, specialidx=specialidx, badidx=badidx, se
       oplot,absicedeg,starpol.P0+starpol.P*cos(4.*absicerad-2*starpol.Xi),linestyle=2,color=2+plotnum-1
     endelse
   endfor
+  
+  
   
   self->Message,'DONE',priority='DEBUG',method='UPDATEPLOT'
   
@@ -1105,6 +1154,7 @@ PRO runpolarimetry::plotdrawarea, event, parameters
     print,''
     print,'Select images by clicking next to a data point or dragging the area containing the data points'
     print,'Press close to an empty area to deselect data points.'
+    print,'Zoom around an area by pressing Ctrl, pressing the left click and dragging the mouse.'
     print,''
     print,'Press the following keys to operate on the selected images.'
     print,'d: open selected images with atv'
@@ -1132,11 +1182,19 @@ PRO runpolarimetry::plotdrawarea, event, parameters
   fidx = (parameters.selidx)[kidx]
   
   ; Create an array with the file names corresponding to the selected data
-  countfidx=0
-  farr = [(photlist.opath)[fidx[countfidx]],(photlist.epath)[fidx[countfidx]]]+'/'+(photlist.fname)[fidx[countfidx]]
-  for countfidx=1,n_elements(fidx)-1 do begin
-    farr = [farr,[(photlist.opath)[fidx[countfidx]],(photlist.epath)[fidx[countfidx]]]+'/'+(photlist.fname)[fidx[countfidx]]]
+  farr=''
+  for countfidx=0,n_elements(fidx)-1 do begin
+    curf=(photlist.opath)[fidx[countfidx]]+'/'+(photlist.fname)[fidx[countfidx]]
+    if file_test(curf) then farr=[farr,curf]
+    curf = (photlist.epath)[fidx[countfidx]]+'/'+(photlist.fname)[fidx[countfidx]]
+    if file_test(curf) then farr=[farr,curf]
   endfor
+  
+  if n_elements(farr) eq 1 then begin
+    self->Message,'No file was found for current photometry list',priority='WARN',method='PLOTDRAWAREA'
+    return
+  endif
+  farr=farr[1:n_elements(farr)-1]
   
   ; Action according to the requested key
   CASE event.ch of
@@ -1162,8 +1220,9 @@ PRO runpolarimetry::plotdrawarea, event, parameters
           dophotometry,farr, /interactive, profile='MOFFAT', /overwrite
           
           ; This updates the photometry list of the object
-          self->readfitsstar, farr[0]
-          self->readfitsstar, farr[1]
+          for i=0,n_elements(farr)-1 do begin
+            self->readfitsstar, farr[i]
+          endfor
           
           ; This updates the polarization list of the object
           self->CompletePolStar
@@ -1245,6 +1304,9 @@ PRO runpolarimetry::plot_event, event, parameters
                 widget_control,event.top,/destroy
                 if self.interactive eq 2 then self.interactive = 1
               end
+    'save': begin
+            self->updatePlot, 0, badidx=(*self.photlist).bad, /ps
+          end
     'drawarea': begin
                 self->plotdrawarea, event, parameters
               end
@@ -1284,7 +1346,7 @@ PRO runpolarimetry::plot, winnum
       info = widget_label(infobase, value='Fit message: '+pollist.fiterrmsg)
     
     ; Plotting area
-    plotpanel = widget_draw(top,xsize=500., ysize=500., retain=2, $
+    plotpanel = widget_draw(top,xsize=1000., ysize=500., retain=2, $
                                /button_events, /MOTION_EVENTS, KEYBOARD_EVENTS=1 , $
                                uvalue={method:'plot_event', object:self, parameters:{wname:'drawarea',prevkey:0,x:-1.,y:-1.,xmove:-1,ymove:-1,selidx:replicate(-1,n_elements(photlist))}}, event_pro='class_eventhand')
     widget_control, plotpanel, get_value=winnum
@@ -1294,6 +1356,7 @@ PRO runpolarimetry::plot, winnum
     ; Button panel
     butpan = widget_base(top,/row)
       butok  = widget_button(butpan, value='Continue', uvalue={method:'plot_event', object:self, parameters:{wname:'continue'}}, event_pro='class_eventhand')
+      butps = widget_button(butpan, value='Save', uvalue={method:'plot_event',object:self,parameters:{wname:'save'}}, event_pro='class_eventhand')
       
     ; realize and start widgets
     widget_control, top, /realize

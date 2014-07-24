@@ -1,0 +1,84 @@
+#!/usr/bin/env ksh
+
+usage=$'[-1?1s1]
+[+NAME?posgroup....]
+[+DESCRIPTION?\bposgroup\b...]
+[r:recursive? Find files recursicely.]
+[d:debug? For debugging purposes.]
+\nx y r indir outdir\n
+[+EXIT VALUES]{
+  [+0?Success.]
+  [+1?Failure.]}'
+    
+
+while	getopts "$usage" option
+do
+  case "${option}"
+  in
+    r) rflag=1;;
+    d) dflag=1;;
+  esac
+done
+shift $(( OPTIND-1 ))
+
+if [ $# -lt 5 ]; then
+  echo "Usage: posgroup x y r indir outdir"
+  exit 1
+fi
+
+# set recursive mode defined with a string to be appended to the idl command
+recstr=''
+if [ ! -z "$rflag" ]; then
+  echo "Checking files recursively at $1 location..."
+  recstr=', recursive=1'
+fi
+
+refpos="[$1,$2,$3]"
+
+# Set IDL path
+cpath=$(which mlofidlpath)
+if [ "$cpath" = "" ]; then
+  echo "IDL_PATH routine is not available"
+  exit 1
+fi
+tmpidlpath="/tmp/$(basename domlofidlpath)$$$$.lst"
+mlofidlpath $tmpidlpath
+if [ $? -eq 1 ]; then
+  echo "Problem setting IDL PATH"
+  if [ -f "$tmpidlpath" ]; then
+    rm $tmpidlpath 
+  fi
+  exit $?
+fi
+source $tmpidlpath
+
+# Remove temporary files
+if [ -f "$tmpidlpath" ]; then
+  echo "Removing $tmpidlpath..."
+  rm $tmpidlpath 
+fi
+
+# Set pipeline name
+pipeline=removefarposition
+
+echo "idl $pipeline, $i $recstr"
+# This is exiting afterwords 
+if [ -z "$dflag" ]; then
+  (  
+    echo "$pipeline, $refpos, '$4', '$5' $recstr"
+  )|idl
+else
+  # Create a temporary directory to store the idl command
+  tmpf="/tmp/$(basename $pipeline)$$$$.lst"
+  echo "Creating $tmpf..."
+  echo "$pipeline, $refpos, '$4', '$5' $recstr" >> $tmpf
+  idl $tmpf
+  
+  # Delete the temporary directory for the command line
+  if [ -f "$tmpf" ]; then
+    echo "Removing $tmpf..."
+    rm $tmpf 
+  fi
+fi
+
+exit $?

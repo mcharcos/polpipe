@@ -487,6 +487,52 @@ PRO runserkowski::AddStarList, starx, stary, parr, filter, eparr=eparr, xiarr=xi
   
 END
 
+;****************************************************************************
+;     READFITSSTAR - read the star properties of a fits file and
+;                    adds a list of stars to the photlist structure list
+;****************************************************************************
+PRO runserkowski::readfitsstar, fname
+  
+  self->Message,'Starting',priority='DEBUG', method='READFITSSTAR
+  
+  imin = readfits(fname,hin,/silent)
+    
+  hwp = self->HWPConvert(sxpar(hin, 'HWP'))
+  date = sxpar(hin, 'DATE-OBS')
+  objname = strtrim(sxpar(hin, 'OBJECT', count=didobject),2)
+  if didobject eq 0 then objname='unknown'
+  currentstar = 0
+  starx_read = sxpar(hin,'ST'+strtrim(currentstar,2)+'X', count=Nkey)
+  currentray = strtrim(sxpar(hin,'RAY', count=didray),2)
+  
+  ; Add all the stars for the current file that are found in the headers
+  while (Nkey ne 0.) do begin
+    if didray eq 0 then currentray=strtrim(sxpar(hin,'ST'+strtrim(currentstar,2)+'RAY'),2)
+    currentname=objname
+    if didobject eq 0 then currentname=sxpar(hin,'ST'+strtrim(currentstar,2)+'NAME',count=didobject)
+    if didobject eq 0 then currentname='unknown'
+    
+    star = self->DefaultRayStar(name=currentname, $
+                                fname=file_basename(fname),  $
+                                path=file_dirname(fname),  $
+                                ray=currentray,   $
+                                flux=sxpar(hin,'ST'+strtrim(currentstar,2)+'F'),   $
+                                eflux=sxpar(hin,'ST'+strtrim(currentstar,2)+'EF'),  $
+                                x=sxpar(hin,'ST'+strtrim(currentstar,2)+'X'),   $
+                                y=sxpar(hin,'ST'+strtrim(currentstar,2)+'Y'),   $
+                                hwp=hwp,  $
+                                filter=sxpar(hin,'FILTER'), $
+                                dataqual=strtrim(sxpar(hin,'DATAQUAL'),2), $
+                                date=date)
+    
+    
+    self->AddStar,star
+    
+    currentstar = currentstar + 1
+    starx_read = sxpar(hin,'ST'+strtrim(currentstar,2)+'X', count=Nkey)
+  endwhile
+  
+END
 
 ;****************************************************************************
 ;     CALCFITPOL - returns the Serkowski polarimetry of the input star using fit
@@ -671,15 +717,28 @@ PRO runserkowski::run, _EXTRA=extraKeywords
     while (starx_read ne 0.) do begin
       self->Message,'     - Adding star '+strtrim(currentstar,2),priority='DEBUG',method='RUN'
       
-      newstarp = sxpar(hin,'UCPLEV'+strtrim(currentstar,2),count=Nhread)
-      newstarep = sxpar(hin,'UCEPLEV'+strtrim(currentstar,2))
-      newstarxi = sxpar(hin,'UCPANG'+strtrim(currentstar,2))
-      newstarexi = sxpar(hin,'UCEPANG'+strtrim(currentstar,2))
+      ; Polarimetry calculated from the star
+      newstarp = sxpar(hin,'POLLEV'+strtrim(currentstar,2))
+      newstarep = sxpar(hin,'ePOLLEV'+strtrim(currentstar,2))
+      newstarxi = sxpar(hin,'POLANG'+strtrim(currentstar,2))
+      newstarexi = sxpar(hin,'ePOLANG'+strtrim(currentstar,2))
+      
+      ; Standard star polarimetry 
+      newstdp = sxpar(hin,'UCPLEV'+strtrim(currentstar,2),count=Nhread)
+      newstdep = sxpar(hin,'UCEPLEV'+strtrim(currentstar,2))
+      newstdxi = sxpar(hin,'UCPANG'+strtrim(currentstar,2))
+      newstdexi = sxpar(hin,'UCEPANG'+strtrim(currentstar,2))
+      
+      ; Correct instrumental polarization
       if Nhread eq 0 then begin
-        newstarp = sxpar(hin,'POLLEV'+strtrim(currentstar,2))
-        newstarep = sxpar(hin,'ePOLLEV'+strtrim(currentstar,2))
-        newstarxi = sxpar(hin,'POLANG'+strtrim(currentstar,2))
-        newstarexi = sxpar(hin,'ePOLANG'+strtrim(currentstar,2))
+        q = newstarp*cos(2.*newstarxi/180.*!pi)
+        u = newstarp*sin(2.*newstarxi/180.*!pi)
+        qstd = newstdp * cos(2.*newstdxi/180*!pi)
+        ustd = newstdp * sin(2.*newstdxi/180*!pi)
+        qcorr = q - qstd
+        ucorr = u - ustd
+        newstarp = sqrt(qcorr^2 + ucorr^2)
+        newstarxi = 0.5 * atan(ucorr/qcorr)
       endif
       
       if currentstar eq 0 then begin
@@ -902,7 +961,7 @@ PRO runserkowski::updatePlot, winnum, specialidx=specialidx, badidx=badidx, selr
   endif
   
   if keyword_set(ps) then begin
-    if not file_test(file_dirname(ps),/directory) then begin
+    if strtrim(ps,2) eq '1' or not file_test(file_dirname(strtrim(ps,2)),/directory) then begin
       sFile = DIALOG_PICKFILE(PATH=file_dirname(starpol.fname0), $
                               TITLE='Select PS File to save the plot',  FILTER='*.ps')
     endif else begin
@@ -1218,31 +1277,31 @@ PRO runserkowski::plotdrawarea, event, parameters
           endfor
         junk = dialog_message(msg)
       end
-    ;if we press the p key we redo the photometry of these target for o and e rays
+    ;if we press the p key we redo the polarization/photometry of these target for o and e rays
     112: begin          
           if (xregistered('atv', /noshow)) then begin
             common atv_state, state
             atv_shutdown
           endif
           
-          for ifarr = 0, n_elements(farr)-1 do begin
-            flist = self->GetFPhotometry(farr[ifarr])
-            if flist.nfiles gt 0 then begin
-              redophot = dialog_message(['Do you want to redo the photometry of these files?','',flist.flist], /QUESTION)
-              if redophot eq 'Yes' then dophotometry,flist.flist, /interactive, profile='MOFFAT', /overwrite
-            endif else begin
-              self->Message,'Cound not find the photometry files from '+farr[ifarr],priority='WARN',method='PLOTDRAWAREA'
-            endelse
-          endfor
+          dopolarimetry,farr, /interactive, /overwrite, /product
           
-          ; We need some sort of update of the self object
-          junk = dialog_message(['WARNING:','Updating the photometry did not updated the information of the serkowski object','This is not implemented yet'])
-          ; This updates the photometry list of the object
-          ;self->readfitsstar, farr[0]
-          ;self->readfitsstar, farr[1]
+          if keyword_set(redoonlyphotometry) then begin
+            for ifarr = 0, n_elements(farr)-1 do begin
+              flist = self->GetFPhotometry(farr[ifarr])
+              if flist.nfiles gt 0 then begin
+                redophot = dialog_message(['Do you want to redo the photometry of these files?','',flist.flist], /QUESTION)
+                if redophot eq 'Yes' then dophotometry,flist.flist, /interactive, profile='MOFFAT', /overwrite
+              endif else begin
+                self->Message,'Cound not find the photometry files from '+farr[ifarr],priority='WARN',method='PLOTDRAWAREA'
+              endelse
+            endfor
+          endif 
           
           ; This updates the polarization list of the object
-          ;self->CompletePolStar
+          junk = dialog_message(['WARNING:','Updating the photometry did not updated the information of the serkowski object','This is not implemented yet'])
+          ; for ifarr = 0, n_elements(farr)-1 do self->readfits,farr[ifarr]
+          ; self->Polarimetry,/fit
        end
     ; if we pressed r, we restore the data that was flagged as r in the selected points
     114: begin
@@ -1356,8 +1415,8 @@ PRO runserkowski::plot, winnum
     
     ; Info area
     infobase = widget_base(top,/column)
-      info = widget_label(infobase, value='Fit status: '+strtrim(starpol.fitstatus,2))
-      info = widget_label(infobase, value='Fit message: '+starpol.fitmsg)
+      info = widget_label(infobase, value='Fit status: '+strjoin(strtrim(starpol.fitstatus,2),','))
+      info = widget_label(infobase, value='Fit message: ['+strjoin(starpol.fitmsg,',')+']')
     
     ; Plotting area
     plotpanel = widget_draw(top,xsize=500., ysize=500., retain=2, $
